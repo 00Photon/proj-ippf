@@ -1,0 +1,43 @@
+{
+  "name": "IPPIS Staff Recognition | OAGF",
+  "short_name": "IPPIS Vote",
+  "description": "Secure monthly staff recognition voting for the Office of the Accountant-General of the Federation.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f7faf8",
+  "theme_color": "#087443",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/pwa-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/pwa-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/pwa-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Cast your vote",
+      "short_name": "Vote",
+      "url": "/#top"
+    },
+    {
+      "name": "How it works",
+      "short_name": "Guide",
+      "url": "/#how-it-works"
+    }
+  ]
+}
