@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { sql } from '@/lib/db'
 import { findNomineeByPhone } from '@/lib/nominees'
+import { getSettings } from '@/lib/admin-auth'
 
 export const dynamic = 'force-dynamic'
 
@@ -22,8 +23,10 @@ export async function GET(request: NextRequest) {
 
   let hasVoted = false
   try {
+    const settings = await getSettings()
+    // Only the active cycle locks a voter — a new cycle resets eligibility
     const rows = (await sql`
-      SELECT id FROM votes WHERE voter_phone = ${voter.phone} LIMIT 1
+      SELECT id FROM votes WHERE voter_phone = ${voter.phone} AND cycle_month = ${settings.votingMonth} LIMIT 1
     `) as { id: number }[]
     hasVoted = rows.length > 0
   } catch (error) {

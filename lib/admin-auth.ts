@@ -150,6 +150,48 @@ export async function getSettings(): Promise<AppSettings> {
   }
 }
 
+export interface CycleInfo {
+  month: string
+  votes: number
+  firstVoteAt: string | null
+  lastVoteAt: string | null
+  isCurrent: boolean
+}
+
+/**
+ * Every voting cycle that exists in the data (past + current), newest first.
+ * Derived from the votes table, so a cycle only appears once it has votes —
+ * the current cycle always appears because it is read from settings.
+ */
+export async function getCycles(): Promise<CycleInfo[]> {
+  const settings = await getSettings()
+  const rows = (await db()`
+    SELECT cycle_month AS month, COUNT(*)::int AS votes,
+           MIN(created_at) AS first_vote_at, MAX(created_at) AS last_vote_at
+    FROM votes
+    GROUP BY cycle_month
+    ORDER BY MIN(created_at) DESC
+  `) as unknown as { month: string; votes: number; first_vote_at: string | null; last_vote_at: string | null }[]
+
+  const cycles: CycleInfo[] = rows.map((r) => ({
+    month: r.month,
+    votes: r.votes,
+    firstVoteAt: r.first_vote_at,
+    lastVoteAt: r.last_vote_at,
+    isCurrent: r.month === settings.votingMonth,
+  }))
+  if (!cycles.some((c) => c.isCurrent)) {
+    cycles.unshift({
+      month: settings.votingMonth,
+      votes: 0,
+      firstVoteAt: null,
+      lastVoteAt: null,
+      isCurrent: true,
+    })
+  }
+  return cycles
+}
+
 export async function updateSettings(next: Partial<AppSettings>): Promise<AppSettings> {
   if (typeof next.votingOpen === 'boolean') {
     await db()`INSERT INTO settings (key, value) VALUES ('voting_open', ${String(next.votingOpen)}) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`

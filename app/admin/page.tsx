@@ -41,6 +41,13 @@ interface Settings {
   votingOpen: boolean
   votingMonth: string
 }
+interface Cycle {
+  month: string
+  votes: number
+  firstVoteAt: string | null
+  lastVoteAt: string | null
+  isCurrent: boolean
+}
 interface CandidateResult {
   sn: number
   name: string
@@ -60,6 +67,7 @@ interface VoteDetail {
   votedAt: string
 }
 interface Results {
+  cycleMonth: string
   totalVotes: number
   totalStaff: number
   turnoutPct: number
@@ -98,6 +106,12 @@ const MONTHS = [
 function fmtDateTime(iso: string): string {
   return new Date(iso).toLocaleString('en-NG', {
     day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit',
+  })
+}
+
+function fmtDate(iso: string): string {
+  return new Date(iso).toLocaleDateString('en-NG', {
+    day: '2-digit', month: 'short', year: 'numeric',
   })
 }
 
@@ -290,7 +304,19 @@ function RowActions({ items }: { items: { label: string; icon: React.ReactNode; 
 
 /* ============ Overview view ============ */
 
-function OverviewView({ results, settings }: { results: Results | null; settings: Settings | null }) {
+function OverviewView({
+  results,
+  settings,
+  cycles,
+  month,
+  onMonthChange,
+}: {
+  results: Results | null
+  settings: Settings | null
+  cycles: Cycle[]
+  month: string
+  onMonthChange: (m: string) => void
+}) {
   const maxVotes = Math.max(1, ...(results?.results.map((r) => r.voteCount) ?? [1]))
   const maxDay = Math.max(1, ...(results?.perDay.map((d) => d.count) ?? [1]))
   const maxHour = Math.max(1, ...(results?.perHour.map((h) => h.count) ?? [1]))
@@ -306,6 +332,34 @@ function OverviewView({ results, settings }: { results: Results | null; settings
 
   return (
     <div className="flex flex-col gap-6">
+      {/* Reporting-period filter */}
+      <Card className="!p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.14em] text-[#71867d]">Reporting period</p>
+            <p className="mt-0.5 text-sm font-semibold text-[#26483a]">
+              {month === '__all__' ? 'All-time totals across every cycle' : `Votes cast in the ${month} cycle`}
+            </p>
+          </div>
+          <label className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.14em] text-[#71867d]">
+            Month
+            <select
+              value={month}
+              onChange={(e) => onMonthChange(e.target.value)}
+              className="rounded-xl border border-[#d7e5de] bg-[#fbfdfc] px-3 py-2.5 text-sm font-semibold normal-case tracking-normal text-[#315d4a] outline-none ring-[#0b8a51] focus:ring-2"
+              aria-label="Filter overview by voting month"
+            >
+              <option value="__all__">All time</option>
+              {cycles.map((c) => (
+                <option key={c.month} value={c.month}>
+                  {c.month}{c.isCurrent ? ' · current' : ''} ({c.votes} vote{c.votes === 1 ? '' : 's'})
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+      </Card>
+
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {statCards.map((card) => (
           <Card key={card.label} className="!p-5">
@@ -384,7 +438,7 @@ function OverviewView({ results, settings }: { results: Results | null; settings
         <CardTitle
           eyebrow="Live feed"
           title="Recent votes"
-          right={<span className="rounded-full bg-[#eef7f2] px-3 py-1 text-xs font-bold text-[#0b8a51]">{settings?.votingOpen ? 'Voting open' : 'Voting closed'} · {settings?.votingMonth}</span>}
+          right={<span className="rounded-full bg-[#eef7f2] px-3 py-1 text-xs font-bold text-[#0b8a51]">{settings?.votingOpen ? 'Voting open' : 'Voting closed'} · {month === '__all__' ? 'All time' : month}</span>}
         />
         <div className="mt-4 flex flex-col divide-y divide-[#f0f5f2]">
           {results?.votes.slice(0, 6).map((v) => (
@@ -418,11 +472,12 @@ interface VotesPage {
   page: number
   pageSize: number
   totalPages: number
+  cycles: Cycle[]
 }
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100]
 
-function VotesView({ results, onDeleteVote, refreshKey }: { results: Results | null; onDeleteVote: (id: number) => void; refreshKey: number }) {
+function VotesView({ month, onMonthChange, onDeleteVote, refreshKey }: { month: string; onMonthChange: (m: string) => void; onDeleteVote: (id: number) => void; refreshKey: number }) {
   const [searchInput, setSearchInput] = useState('')
   const [search, setSearch] = useState('') // debounced
   const [proxyOnly, setProxyOnly] = useState(false)
@@ -432,6 +487,7 @@ function VotesView({ results, onDeleteVote, refreshKey }: { results: Results | n
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [exporting, setExporting] = useState(false)
+  const [cycles, setCycles] = useState<Cycle[]>([])
 
   // Debounce search input → query (300ms)
   useEffect(() => {
@@ -453,13 +509,17 @@ function VotesView({ results, onDeleteVote, refreshKey }: { results: Results | n
     })
     if (search) params.set('search', search)
     if (proxyOnly) params.set('proxy', '1')
+    if (month && month !== '__all__') params.set('month', month)
     fetch(`/api/admin/votes?${params.toString()}`)
       .then(async (res) => {
         if (!res.ok) throw new Error('Failed to load')
         return (await res.json()) as VotesPage
       })
       .then((next) => {
-        if (!cancelled) setData(next)
+        if (!cancelled) {
+          setData(next)
+          setCycles(next.cycles ?? [])
+        }
       })
       .catch(() => {
         if (!cancelled) setError('Could not load votes. Try refreshing.')
@@ -470,12 +530,12 @@ function VotesView({ results, onDeleteVote, refreshKey }: { results: Results | n
     return () => {
       cancelled = true
     }
-  }, [page, pageSize, search, proxyOnly, refreshKey])
+  }, [page, pageSize, search, proxyOnly, month, refreshKey])
 
   // Reset to page 1 when the filter set changes
   useEffect(() => {
     setPage(1)
-  }, [proxyOnly, refreshKey])
+  }, [proxyOnly, month, refreshKey])
 
   async function exportVotesCsv() {
     if (!data || data.total === 0) {
@@ -488,6 +548,7 @@ function VotesView({ results, onDeleteVote, refreshKey }: { results: Results | n
       const params = new URLSearchParams({ all: '1' })
       if (search) params.set('search', search)
       if (proxyOnly) params.set('proxy', '1')
+      if (month && month !== '__all__') params.set('month', month)
       const res = await fetch(`/api/admin/votes?${params.toString()}`)
       if (!res.ok) throw new Error()
       const full = (await res.json()) as { total: number; votes: VoteDetail[] }
@@ -559,6 +620,20 @@ function VotesView({ results, onDeleteVote, refreshKey }: { results: Results | n
               className="w-full rounded-xl border border-[#d7e5de] bg-[#fbfdfc] py-2.5 pl-9 pr-4 text-sm outline-none ring-[#0b8a51] focus:ring-2 sm:w-72"
             />
           </label>
+          <select
+            value={month}
+            onChange={(e) => onMonthChange(e.target.value)}
+            className="rounded-xl border border-[#d7e5de] bg-[#fbfdfc] px-3 py-2.5 text-xs font-bold text-[#315d4a] outline-none ring-[#0b8a51] focus:ring-2"
+            aria-label="Filter votes by voting month"
+            title="Filter votes by voting cycle"
+          >
+            <option value="__all__">All cycles</option>
+            {cycles.map((c) => (
+              <option key={c.month} value={c.month}>
+                {c.month}{c.isCurrent ? ' · current' : ''} ({c.votes})
+              </option>
+            ))}
+          </select>
           <button
             onClick={() => setProxyOnly(!proxyOnly)}
             className={`flex items-center justify-center gap-2 rounded-xl border px-4 py-2.5 text-xs font-bold transition ${proxyOnly ? 'border-[#b04a4a] bg-[#fdf1f1] text-[#b04a4a]' : 'border-[#d7e5de] bg-[#fbfdfc] text-[#587268] hover:border-[#b8d8c5]'}`}
@@ -964,6 +1039,7 @@ function SettingsView({
   onToggleVoting,
   onSaveMonth,
   toggling,
+  cycles,
 }: {
   settings: Settings | null
   monthDraft: string
@@ -972,6 +1048,7 @@ function SettingsView({
   onToggleVoting: () => void
   onSaveMonth: () => void
   toggling: boolean
+  cycles: Cycle[]
 }) {
   const [showPasswordForm, setShowPasswordForm] = useState(false)
   const [curPass, setCurPass] = useState('')
@@ -1068,7 +1145,41 @@ function SettingsView({
         </div>
         <p className="mt-3 text-xs leading-5 text-[#8a9a91]">
           The cycle name appears on the public page and ballot. Changes reflect immediately for voters.
+          Past cycles are never deleted — their votes stay in the archive and remain available in the month
+          filters on Overview and Votes.
         </p>
+      </Card>
+
+      {/* Cycle history */}
+      <Card>
+        <CardTitle eyebrow="History" title="Voting cycles" />
+        <p className="mt-2 text-sm leading-6 text-[#71867d]">
+          Every cycle that has votes on record, newest first. Switching the active cycle never removes a
+          past one — each keeps its own tallies and one-vote-per-staff record.
+        </p>
+        <div className="mt-4 flex flex-col divide-y divide-[#f0f5f2]">
+          {cycles.map((c) => (
+            <div key={c.month} className="flex items-center justify-between gap-3 py-2.5">
+              <div className="min-w-0">
+                <p className="truncate text-sm font-semibold text-[#26483a]">
+                  {c.month}
+                  {c.isCurrent && (
+                    <span className="ml-2 rounded-full bg-[#e3f4e9] px-2 py-0.5 text-[10px] font-bold text-[#0b8a51]">ACTIVE</span>
+                  )}
+                </p>
+                <p className="text-xs text-[#8a9a91]">
+                  {c.firstVoteAt && c.lastVoteAt
+                    ? `${fmtDate(c.firstVoteAt)} → ${fmtDate(c.lastVoteAt)}`
+                    : 'No votes recorded yet'}
+                </p>
+              </div>
+              <span className="shrink-0 rounded-full bg-[#eef7f2] px-3 py-1 text-xs font-bold text-[#0b8a51]">
+                {c.votes} vote{c.votes === 1 ? '' : 's'}
+              </span>
+            </div>
+          ))}
+          {cycles.length === 0 && <p className="py-6 text-center text-sm text-[#8a9a91]">No cycles on record yet.</p>}
+        </div>
       </Card>
 
       {/* Security / password */}
@@ -1144,8 +1255,12 @@ export default function AdminPage() {
   const [settings, setSettings] = useState<Settings | null>(null)
   const [results, setResults] = useState<Results | null>(null)
   const [staffData, setStaffData] = useState<StaffData | null>(null)
+  const [cycles, setCycles] = useState<Cycle[]>([])
   const [loadingData, setLoadingData] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
+
+  // Reporting-period filter, shared by Overview and Votes. '__all__' = all-time.
+  const [monthFilter, setMonthFilter] = useState('__all__')
 
   const [monthDraft, setMonthDraft] = useState('')
   const [monthSaved, setMonthSaved] = useState(false)
@@ -1160,10 +1275,11 @@ export default function AdminPage() {
   const loadData = useCallback(async () => {
     setLoadingData(true)
     try {
-      const [sRes, rRes, stRes] = await Promise.all([
+      const [sRes, rRes, stRes, cRes] = await Promise.all([
         fetch('/api/admin/settings'),
-        fetch('/api/admin/results'),
+        fetch(`/api/admin/results?${monthFilter === '__all__' ? 'all=1' : `month=${encodeURIComponent(monthFilter)}`}`),
         fetch('/api/admin/staff'),
+        fetch('/api/admin/cycles'),
       ])
       if (sRes.ok) {
         const s = (await sRes.json()) as Settings
@@ -1172,20 +1288,23 @@ export default function AdminPage() {
       }
       if (rRes.ok) setResults((await rRes.json()) as Results)
       if (stRes.ok) setStaffData((await stRes.json()) as StaffData)
+      if (cRes.ok) {
+        const c = (await cRes.json()) as { cycles: Cycle[] }
+        setCycles(c.cycles ?? [])
+      }
     } finally {
       setLoadingData(false)
     }
-  }, [])
+  }, [monthFilter])
 
+  // Check the session once on mount
   useEffect(() => {
     let cancelled = false
     fetch('/api/admin/session')
       .then((res) => {
         if (res.ok) {
           return res.json().then((d: { admin: AdminUser }) => {
-            if (cancelled) return
-            setAdmin(d.admin)
-            return loadData()
+            if (!cancelled) setAdmin(d.admin)
           })
         }
       })
@@ -1196,7 +1315,13 @@ export default function AdminPage() {
     return () => {
       cancelled = true
     }
-  }, [loadData])
+  }, [])
+
+  // Load (or reload) data once signed in and whenever the month filter changes
+  useEffect(() => {
+    if (!admin) return
+    loadData()
+  }, [admin, loadData])
 
   async function handleLogin(u: string, p: string): Promise<boolean | string> {
     try {
@@ -1254,6 +1379,9 @@ export default function AdminPage() {
       setMonthSaved(true)
       showToast(true, 'Voting cycle updated')
       setTimeout(() => setMonthSaved(false), 2000)
+      // The new cycle becomes the default reporting period and appears in filters
+      setMonthFilter(monthDraft.trim())
+      await loadData()
     }
   }
 
@@ -1413,8 +1541,12 @@ export default function AdminPage() {
         </header>
 
         <main className="mx-auto w-full max-w-7xl flex-1 px-4 pb-24 pt-5 sm:px-5 lg:px-8 lg:pb-6 lg:pt-6">
-          {view === 'overview' && <OverviewView results={results} settings={settings} />}
-          {view === 'votes' && <VotesView results={results} onDeleteVote={deleteVote} refreshKey={refreshKey} />}
+          {view === 'overview' && (
+            <OverviewView results={results} settings={settings} cycles={cycles} month={monthFilter} onMonthChange={setMonthFilter} />
+          )}
+          {view === 'votes' && (
+            <VotesView month={monthFilter} onMonthChange={setMonthFilter} onDeleteVote={deleteVote} refreshKey={refreshKey} />
+          )}
           {view === 'nominees' && (
             <NomineesView
               staffData={staffData}
@@ -1434,6 +1566,7 @@ export default function AdminPage() {
               onToggleVoting={toggleVoting}
               onSaveMonth={saveMonth}
               toggling={toggling}
+              cycles={cycles}
             />
           )}
         </main>

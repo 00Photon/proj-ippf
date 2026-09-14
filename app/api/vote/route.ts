@@ -59,8 +59,8 @@ export async function POST(request: NextRequest) {
     const locationJson = location ? JSON.stringify(location) : null
 
     const inserted = (await sql`
-      INSERT INTO votes (voter_phone, candidate_sn, candidate_name, remarks, ip_address, user_agent, location, is_proxy)
-      VALUES (${voter.phone}, ${candidate.sn}, ${candidate.name}, ${remarks || null}, ${audit.ip}, ${audit.userAgent}, ${locationJson}::jsonb, ${location?.isProxy ?? false})
+      INSERT INTO votes (voter_phone, candidate_sn, candidate_name, remarks, ip_address, user_agent, location, is_proxy, cycle_month)
+      VALUES (${voter.phone}, ${candidate.sn}, ${candidate.name}, ${remarks || null}, ${audit.ip}, ${audit.userAgent}, ${locationJson}::jsonb, ${location?.isProxy ?? false}, ${settings.votingMonth})
       RETURNING id, created_at
     `) as VoteRow[]
     return NextResponse.json({
@@ -78,7 +78,7 @@ export async function POST(request: NextRequest) {
     const message = error instanceof Error ? error.message : String(error)
     if (message.includes('duplicate key') || message.includes('unique')) {
       return NextResponse.json(
-        { error: 'This phone number has already voted in this cycle. One staff, one vote.' },
+        { error: `This phone number has already voted in the ${settings.votingMonth} cycle. One staff, one vote per cycle.` },
         { status: 409 },
       )
     }

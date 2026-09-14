@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { sql } from '@/lib/db'
 import { getNominees } from '@/lib/nominees'
-import { requireAdmin } from '@/lib/admin-auth'
+import { getCycles, requireAdmin } from '@/lib/admin-auth'
 
 export const dynamic = 'force-dynamic'
 
@@ -27,6 +27,7 @@ interface VoteRow {
  *   pageSize rows per page, 1–200 (default 25)
  *   search   matches phone / candidate name / remarks / IP / location
  *   proxy    "1" → only flagged votes, "0" → only clean, absent → all
+ *   month    cycle label, e.g. "September 2026" (absent → all cycles)
  *   all      "1" → no pagination, returns every match (for CSV export)
  *
  * Search runs in Postgres (ILIKE across voter_phone, candidate_name,
@@ -42,6 +43,7 @@ export async function GET(request: NextRequest) {
     const proxyParam = params.get('proxy')
     const proxyFilter: boolean | null = proxyParam === '1' ? true : proxyParam === '0' ? false : null
     const wantsAll = params.get('all') === '1'
+    const month = (params.get('month') ?? '').trim().slice(0, 40) || null
 
     const pageSize = Math.min(MAX_PAGE_SIZE, Math.max(1, Number.parseInt(params.get('pageSize') ?? '25', 10) || 25))
     const requestedPage = Math.max(1, Number.parseInt(params.get('page') ?? '1', 10) || 1)
@@ -61,6 +63,10 @@ export async function GET(request: NextRequest) {
       bind.push(proxyFilter)
       fragments.push(`is_proxy = $${bind.length}`)
     }
+    if (month) {
+      bind.push(month)
+      fragments.push(`cycle_month = $${bind.length}`)
+    }
     const whereClause = fragments.length ? `WHERE ${fragments.join(' AND ')}` : ''
 
     const countRows = (await sql.query(
@@ -75,6 +81,7 @@ export async function GET(request: NextRequest) {
 
     const rows = (await sql.query(dataText, bind)) as unknown as VoteRow[]
     const nominees = await getNominees()
+    const cycles = await getCycles()
 
     const votes = rows.map((row) => ({
       id: row.id,
@@ -92,6 +99,9 @@ export async function GET(request: NextRequest) {
       votedAt: row.created_at,
     }))
 
+    const cycleMeta = month ? cycles.find((c) => c.month === month) ?? null : null
+    const scopedTotal = cycleMeta ? cycleMeta.votes : cycles.reduce((s, c) => s + c.votes, 0)
+
     if (wantsAll) {
       return NextResponse.json({ total, votes })
     }
@@ -103,6 +113,9 @@ export async function GET(request: NextRequest) {
       page: Math.min(requestedPage, totalPages),
       pageSize,
       totalPages,
+      cycles,
+      scopedTotal,
+      cycleMonth: month ?? 'All time',
     })
   } catch (error) {
     if ((error as Error & { status?: number }).status === 401) {
