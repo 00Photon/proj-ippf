@@ -250,8 +250,8 @@ export default function Page() {
               Recognising the people who keep IPPIS moving.
             </h1>
             <p className="mt-6 max-w-md text-[15px] leading-7 text-[#5c6f63]">
-              Staff of the Office of the Accountant-General of the Federation vote for a colleague whose
-              work stood out this cycle. Sign in with your registered phone number — no name needed.
+              Staff of the Office of the Accountant-General of the Federation(IPPIS). vote for a colleague whose
+              work stood out. To cast your vote, Sign in with your registered phone number.
             </p>
 
             <div className="mt-9 flex flex-col gap-3 sm:flex-row sm:items-center">

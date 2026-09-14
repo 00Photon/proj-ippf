@@ -177,7 +177,7 @@ function LoginScreen({ onLogin }: { onLogin: (u: string, p: string) => Promise<b
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-[#10261d] px-5">
-      <div className="w-full max-w-sm rounded-[28px] border border-[#2b4a3c] bg-[#16352a] p-8 shadow-2xl">
+      <div className="w-full max-w-sm rounded-[28px] border border-[#2b4a3c] bg-[#16352a] p-6 shadow-2xl sm:p-8">
         <div className="mb-6 text-center">
           <div className="mx-auto flex size-14 items-center justify-center rounded-2xl bg-[#0b8a51] text-white">
             <ShieldCheck className="size-7" />
@@ -900,8 +900,8 @@ function NomineesView({
 
       {/* Add / edit nominee modal */}
       {showAddForm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#10261d]/50 p-5 backdrop-blur-sm" role="dialog" aria-modal="true">
-          <div className="w-full max-w-md rounded-[24px] bg-white p-7 shadow-2xl">
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-[#10261d]/50 backdrop-blur-sm sm:items-center sm:p-5" role="dialog" aria-modal="true">
+          <div className="max-h-[92vh] w-full max-w-md overflow-y-auto rounded-t-[24px] bg-white p-6 shadow-2xl sm:rounded-[24px] sm:p-7">
             <div className="flex items-start justify-between">
               <div>
                 <p className="text-xs font-bold uppercase tracking-[0.14em] text-[#0b8a51]">Nominal roll</p>
@@ -1089,8 +1089,8 @@ function SettingsView({
 
       {/* Password modal */}
       {showPasswordForm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#10261d]/50 p-5 backdrop-blur-sm" role="dialog" aria-modal="true">
-          <div className="w-full max-w-md rounded-[24px] bg-white p-7 shadow-2xl">
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-[#10261d]/50 backdrop-blur-sm sm:items-center sm:p-5" role="dialog" aria-modal="true">
+          <div className="max-h-[92vh] w-full max-w-md overflow-y-auto rounded-t-[24px] bg-white p-6 shadow-2xl sm:rounded-[24px] sm:p-7">
             <div className="flex items-start justify-between">
               <div>
                 <p className="text-xs font-bold uppercase tracking-[0.14em] text-[#0b8a51]">Security</p>
@@ -1390,35 +1390,29 @@ export default function AdminPage() {
       <div className="flex min-w-0 flex-1 flex-col lg:ml-64">
         {/* Header */}
         <header className="sticky top-0 z-30 border-b border-[#dbe8e1] bg-white/90 backdrop-blur">
-          <div className="flex items-center justify-between px-5 py-4 lg:px-8">
-            <div className="flex items-center gap-3">
-              {/* Mobile nav */}
-              <div className="relative lg:hidden">
-                <select
-                  value={view}
-                  onChange={(e) => setView(e.target.value as View)}
-                  className="rounded-xl border border-[#d7e5de] bg-white px-3 py-2.5 text-sm font-bold text-[#315d4a] outline-none"
-                >
-                  {NAV.map((item) => (
-                    <option key={item.key} value={item.key}>{item.label}</option>
-                  ))}
-                </select>
+          <div className="flex items-center justify-between px-4 py-3 sm:px-5 sm:py-4 lg:px-8">
+            <div className="flex items-center gap-2.5">
+              <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-[#0b8a51] text-white lg:hidden">
+                <ShieldCheck className="size-4.5" />
               </div>
-              <h1 className="hidden text-xl font-bold tracking-tight capitalize sm:block lg:hidden xl:block">{view}</h1>
+              <div>
+                <h1 className="text-lg font-bold tracking-tight capitalize sm:text-xl">{view}</h1>
+                <p className="text-[11px] font-medium text-[#71867d] lg:hidden">IPPIS Admin</p>
+              </div>
             </div>
             <div className="flex items-center gap-2">
               <span className="hidden rounded-full bg-[#eef7f2] px-3 py-1.5 text-xs font-bold text-[#0b8a51] sm:inline">{settings?.votingMonth}</span>
-              <button onClick={loadData} disabled={loadingData} className="flex items-center gap-2 rounded-xl border border-[#d4e3dc] bg-white px-3.5 py-2.5 text-sm font-semibold text-[#315d4a] transition hover:border-[#9cc9b2] disabled:opacity-50" title="Refresh data">
+              <button onClick={loadData} disabled={loadingData} className="flex items-center gap-2 rounded-xl border border-[#d4e3dc] bg-white px-3 py-2 sm:px-3.5 sm:py-2.5 text-sm font-semibold text-[#315d4a] transition hover:border-[#9cc9b2] disabled:opacity-50" title="Refresh data">
                 <RefreshCw className={`size-4 ${loadingData ? 'animate-spin' : ''}`} /> <span className="hidden sm:inline">Refresh</span>
               </button>
-              <button onClick={handleLogout} className="flex items-center gap-2 rounded-xl border border-[#e5c9c9] bg-white px-3.5 py-2.5 text-sm font-semibold text-[#b04a4a] transition hover:border-[#d49a9a]">
+              <button onClick={handleLogout} className="flex items-center gap-2 rounded-xl border border-[#e5c9c9] bg-white px-3 py-2 sm:px-3.5 sm:py-2.5 text-sm font-semibold text-[#b04a4a] transition hover:border-[#d49a9a]">
                 <LogOut className="size-4" /> <span className="hidden sm:inline">Sign out</span>
               </button>
             </div>
           </div>
         </header>
 
-        <main className="mx-auto w-full max-w-7xl flex-1 px-5 py-6 lg:px-8">
+        <main className="mx-auto w-full max-w-7xl flex-1 px-4 pb-24 pt-5 sm:px-5 lg:px-8 lg:pb-6 lg:pt-6">
           {view === 'overview' && <OverviewView results={results} settings={settings} />}
           {view === 'votes' && <VotesView results={results} onDeleteVote={deleteVote} refreshKey={refreshKey} />}
           {view === 'nominees' && (
@@ -1447,10 +1441,29 @@ export default function AdminPage() {
 
       {/* Toast */}
       {toast && (
-        <div className={`fixed bottom-6 right-6 z-50 flex items-center gap-2 rounded-xl px-4 py-3 text-sm font-bold text-white shadow-2xl ${toast.ok ? 'bg-[#0b8a51]' : 'bg-[#b04a4a]'}`}>
-          {toast.ok ? <Check className="size-4" /> : <X className="size-4" />} {toast.text}
+        <div className={`fixed bottom-20 left-4 right-4 z-50 flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-center text-sm font-bold text-white shadow-2xl sm:left-auto sm:right-6 sm:text-left lg:bottom-6 ${toast.ok ? 'bg-[#0b8a51]' : 'bg-[#b04a4a]'}`}>
+          {toast.ok ? <Check className="size-4 shrink-0" /> : <X className="size-4 shrink-0" />} {toast.text}
         </div>
       )}
+
+      {/* Bottom tab bar (mobile) */}
+      <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-[#dbe8e1] bg-white/95 pb-[env(safe-area-inset-bottom)] backdrop-blur lg:hidden">
+        <div className="mx-auto grid max-w-lg grid-cols-4">
+          {NAV.map((item) => (
+            <button
+              key={item.key}
+              onClick={() => setView(item.key)}
+              className={`flex flex-col items-center gap-1 py-2.5 text-[10px] font-bold transition ${view === item.key ? 'text-[#0b8a51]' : 'text-[#8a9a91] hover:text-[#587268]'}`}
+              aria-current={view === item.key ? 'page' : undefined}
+            >
+              <span className={`flex size-8 items-center justify-center rounded-xl transition ${view === item.key ? 'bg-[#e3f4e9]' : ''}`}>
+                {item.icon}
+              </span>
+              {item.label}
+            </button>
+          ))}
+        </div>
+      </nav>
     </div>
   )
 }
