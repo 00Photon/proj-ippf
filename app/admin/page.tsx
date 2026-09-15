@@ -820,6 +820,7 @@ function DivisionsView({
   onMonthChange,
   onToggleDivisionVoting,
   onCloseDivisionsAndNominate,
+  onDeleteDivisionVote,
   toggling,
   refreshKey,
 }: {
@@ -829,6 +830,7 @@ function DivisionsView({
   onMonthChange: (m: string) => void
   onToggleDivisionVoting: () => void
   onCloseDivisionsAndNominate: () => void
+  onDeleteDivisionVote: (id: number) => void
   toggling: boolean
   refreshKey: number
 }) {
@@ -972,6 +974,7 @@ function DivisionsView({
                 <th className="pb-3 pr-3 font-bold">Location</th>
                 <th className="pb-3 pr-3 font-bold">Device</th>
                 <th className="pb-3 pr-3 font-bold">Time</th>
+                <th className="pb-3 pr-1 font-bold">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -999,11 +1002,18 @@ function DivisionsView({
                   </td>
                   <td className="py-3 pr-3 text-xs text-[#587268]">{deviceLabel(v.userAgent)}</td>
                   <td className="py-3 pr-3 text-xs text-[#587268]">{fmtDateTime(v.votedAt)}</td>
+                  <td className="py-3 pr-1">
+                    <RowActions
+                      items={[
+                        { label: 'Delete vote', icon: <Trash2 className="size-4" />, onClick: () => onDeleteDivisionVote(v.id), danger: true },
+                      ]}
+                    />
+                  </td>
                 </tr>
               ))}
               {votes.length === 0 && (
                 <tr>
-                  <td colSpan={9} className="py-10 text-center text-sm text-[#8a9a91]">No division votes recorded yet.</td>
+                  <td colSpan={10} className="py-10 text-center text-sm text-[#8a9a91]">No division votes recorded yet.</td>
                 </tr>
               )}
             </tbody>
@@ -1693,6 +1703,18 @@ export default function AdminPage() {
     }
   }
 
+  async function deleteDivisionVote(id: number) {
+    if (!confirm(`Delete division vote #${id}? This cannot be undone, and that phone number will be able to cast a division vote again.`)) return
+    const res = await fetch(`/api/admin/divisions/${id}`, { method: 'DELETE' })
+    if (res.ok) {
+      showToast(true, `Division vote #${id} deleted`)
+      setRefreshKey((k) => k + 1)
+      await loadData()
+    } else {
+      showToast(false, 'Failed to delete division vote')
+    }
+  }
+
   async function deleteVotesFor(sn: number, name: string) {
     if (!results) return
     const theirs = results.votes.filter((v) => v.candidateSn === sn)
@@ -1921,6 +1943,7 @@ export default function AdminPage() {
               onMonthChange={setMonthFilter}
               onToggleDivisionVoting={toggleDivisionVoting}
               onCloseDivisionsAndNominate={closeDivisionsAndNominate}
+              onDeleteDivisionVote={deleteDivisionVote}
               toggling={toggling}
               refreshKey={refreshKey}
             />
