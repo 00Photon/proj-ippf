@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { sql } from '@/lib/db'
+import { normalizePhone } from '@/lib/staff'
 import { findNomineeByPhone } from '@/lib/nominees'
 import { hasDivisionVoted } from '@/lib/divisions'
 import { getSettings } from '@/lib/admin-auth'
@@ -26,12 +27,14 @@ export async function GET(request: NextRequest) {
   let hasVotedDivision = false
   try {
     const settings = await getSettings()
+    // A voter found by phone always has a phone; normalise once for the lookups.
+    const phone = normalizePhone(phoneRaw) ?? ''
     // Only the active cycle locks a voter — a new cycle resets eligibility
     const rows = (await sql`
-      SELECT id FROM votes WHERE voter_phone = ${voter.phone} AND cycle_month = ${settings.votingMonth} LIMIT 1
+      SELECT id FROM votes WHERE voter_phone = ${phone} AND cycle_month = ${settings.votingMonth} LIMIT 1
     `) as { id: number }[]
     hasVoted = rows.length > 0
-    hasVotedDivision = await hasDivisionVoted(voter.phone, settings.votingMonth)
+    hasVotedDivision = await hasDivisionVoted(phone, settings.votingMonth)
   } catch (error) {
     console.error('Verify lookup failed:', error instanceof Error ? error.message : error)
     return NextResponse.json({ error: 'Verification temporarily unavailable.' }, { status: 500 })

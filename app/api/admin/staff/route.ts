@@ -34,7 +34,7 @@ export async function GET() {
       division,
       nominated,
       votesReceived: receivedRows.find((r) => r.candidate_sn === sn)?.count ?? 0,
-      hasVoted: voters.has(phone),
+      hasVoted: phone !== null && voters.has(phone),
     }))
 
     return NextResponse.json({

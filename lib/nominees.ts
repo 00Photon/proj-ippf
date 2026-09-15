@@ -5,7 +5,8 @@ import { canonicalDivision } from '@/lib/division-list'
 export interface Nominee {
   sn: number
   name: string
-  phone: string
+  /** Verified contact number. null = pending — the staff member cannot verify/vote until it is set. */
+  phone: string | null
   division: string | null
   nominated: boolean
 }
@@ -32,21 +33,23 @@ async function ensureNomineesTable(): Promise<void> {
           created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )
       `
-      // Migration for existing installs: add the nomination flag + division.
+      // Migration for existing installs: add the nomination flag + division,
+      // and allow staff without a known phone number yet.
       await sql`ALTER TABLE nominees ADD COLUMN IF NOT EXISTS nominated BOOLEAN NOT NULL DEFAULT false`
       await sql`ALTER TABLE nominees ADD COLUMN IF NOT EXISTS division TEXT`
+      await sql`ALTER TABLE nominees ALTER COLUMN phone DROP NOT NULL`
 
       const countRows = (await sql`SELECT COUNT(*)::int AS n FROM nominees`) as unknown as { n: number }[]
       if ((countRows[0]?.n ?? 0) === 0) {
-        // Seed from the original static roll, preserving S/Ns (not nominated by default)
+        // Seed from the official division roll, preserving S/Ns (not nominated by default)
         const values: unknown[] = []
         const tuples = staffList.map((m) => {
-          values.push(m.sn, m.name, m.phone)
-          const i = values.length - 2
-          return `($${i}, $${i + 1}, $${i + 2})`
+          values.push(m.sn, m.name, m.phone, m.division)
+          const i = values.length - 3
+          return `($${i}, $${i + 1}, $${i + 2}, $${i + 3})`
         })
         await sql.query(
-          `INSERT INTO nominees (sn, name, phone) VALUES ${tuples.join(', ')} ON CONFLICT (sn) DO NOTHING`,
+          `INSERT INTO nominees (sn, name, phone, division) VALUES ${tuples.join(', ')} ON CONFLICT (sn) DO NOTHING`,
           values,
         )
         // Keep the sequence ahead of the seeded S/Ns
@@ -67,10 +70,10 @@ async function ensureNomineesTable(): Promise<void> {
 export async function getNominees(): Promise<Nominee[]> {
   try {
     await ensureNomineesTable()
-    return (await sql`SELECT sn, name, phone, division, nominated FROM nominees ORDER BY sn ASC`) as unknown as Nominee[]
+    return (await sql`SELECT sn, name, COALESCE(phone, '') AS phone, division, nominated FROM nominees ORDER BY sn ASC`) as unknown as Nominee[]
   } catch (error) {
     console.error('Nominees load failed, using static roll:', error instanceof Error ? error.message : error)
-    return staffList.map((m) => ({ ...m, division: null, nominated: false }))
+    return staffList.map((m) => ({ ...m, division: m.division, nominated: false }))
   }
 }
 
@@ -113,13 +116,14 @@ export type AddNomineeResult =
   | { ok: true; nominee: Nominee }
   | { ok: false; error: string; status: 400 | 409 | 500 }
 
-export async function addNominee(nameRaw: string, phoneRaw: string, divisionRaw?: string): Promise<AddNomineeResult> {
+export async function addNominee(nameRaw: string, phoneRaw: string | null, divisionRaw?: string): Promise<AddNomineeResult> {
   const name = nameRaw.trim().replace(/\s+/g, ' ')
   if (name.length < 2 || name.length > 80) {
     return { ok: false, error: 'Name must be between 2 and 80 characters.', status: 400 }
   }
-  const phone = normalizePhone(phoneRaw)
-  if (!phone) {
+  // Phone is optional: a staff member without one can't verify/vote until it's added.
+  const phone = phoneRaw && phoneRaw.trim() !== '' ? normalizePhone(phoneRaw) : null
+  if (phoneRaw && phoneRaw.trim() !== '' && !phone) {
     return { ok: false, error: 'Enter a valid 11-digit Nigerian phone number, e.g. 08031234567.', status: 400 }
   }
   const division = divisionRaw === undefined ? undefined : canonicalDivision(divisionRaw ?? '')
@@ -152,7 +156,7 @@ export type UpdateNomineeResult =
  * Edits a nominee's name and/or phone. Votes already cast are tied to the
  * phone number used at vote time, so they are intentionally left untouched.
  */
-export async function updateNominee(sn: number, nameRaw: string, phoneRaw: string, divisionRaw?: string): Promise<UpdateNomineeResult> {
+export async function updateNominee(sn: number, nameRaw: string, phoneRaw: string | null, divisionRaw?: string): Promise<UpdateNomineeResult> {
   if (!Number.isFinite(sn)) {
     return { ok: false, error: 'Invalid nominee S/N.', status: 400 }
   }
@@ -160,8 +164,8 @@ export async function updateNominee(sn: number, nameRaw: string, phoneRaw: strin
   if (name.length < 2 || name.length > 80) {
     return { ok: false, error: 'Name must be between 2 and 80 characters.', status: 400 }
   }
-  const phone = normalizePhone(phoneRaw)
-  if (!phone) {
+  const phone = phoneRaw && phoneRaw.trim() !== '' ? normalizePhone(phoneRaw) : null
+  if (phoneRaw && phoneRaw.trim() !== '' && !phone) {
     return { ok: false, error: 'Enter a valid 11-digit Nigerian phone number, e.g. 08031234567.', status: 400 }
   }
   const division = divisionRaw === undefined ? undefined : canonicalDivision(divisionRaw ?? '')

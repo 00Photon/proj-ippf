@@ -164,6 +164,7 @@ function deviceLabel(ua: string | null): string {
 }
 
 function formatPhone(phone: string): string {
+  if (!phone) return ''
   if (phone.length === 11) return `${phone.slice(0, 4)} ${phone.slice(4, 7)} ${phone.slice(7)}`
   return phone
 }
@@ -305,7 +306,7 @@ function CardTitle({ eyebrow, title, right }: { eyebrow: string; title: string; 
   )
 }
 
-function RowActions({ items }: { items: { label: string; icon: React.ReactNode; onClick: () => void; danger?: boolean }[] }) {
+function RowActions({ items }: { items: { label: string; icon: React.ReactNode; onClick: () => void; danger?: boolean; disabled?: boolean }[] }) {
   const [open, setOpen] = useState(false)
   return (
     <div className="relative">
@@ -324,11 +325,13 @@ function RowActions({ items }: { items: { label: string; icon: React.ReactNode; 
             {items.map((item) => (
               <button
                 key={item.label}
+                disabled={item.disabled}
                 onClick={() => {
+                  if (item.disabled) return
                   setOpen(false)
                   item.onClick()
                 }}
-                className={`flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left text-sm font-medium transition hover:bg-[#f3f9f6] ${item.danger ? 'text-[#b04a4a]' : 'text-[#315d4a]'}`}
+                className={`flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left text-sm font-medium transition ${item.disabled ? 'cursor-not-allowed text-[#b3c2ba]' : 'hover:bg-[#f3f9f6]'} ${item.danger && !item.disabled ? 'text-[#b04a4a]' : item.danger ? 'text-[#d8a3a3]' : item.disabled ? '' : 'text-[#315d4a]'}`}
               >
                 {item.icon} {item.label}
               </button>
@@ -1200,9 +1203,13 @@ function StaffView({
                   )}
                 </td>
                 <td className="py-3 pr-3">
-                  <button onClick={() => onRevealPhone(s.phone)} className="font-mono text-xs text-[#587268] transition hover:text-[#0b8a51]" title="Copy phone number">
-                    {formatPhone(s.phone)}
-                  </button>
+                  {s.phone ? (
+                    <button onClick={() => onRevealPhone(s.phone)} className="font-mono text-xs text-[#587268] transition hover:text-[#0b8a51]" title="Copy phone number">
+                      {formatPhone(s.phone)}
+                    </button>
+                  ) : (
+                    <span className="text-xs italic text-[#b3c2ba]">Not set</span>
+                  )}
                 </td>
                 <td className="py-3 pr-3">
                   <div className="flex items-center gap-2">
@@ -1225,7 +1232,7 @@ function StaffView({
                       s.nominated
                         ? { label: 'Withdraw from ballot', icon: <StarOff className="size-4" />, onClick: () => onSetNominated(s.sn, s.name, false) }
                         : { label: 'Nominate for ballot', icon: <Star className="size-4" />, onClick: () => onSetNominated(s.sn, s.name, true) },
-                      { label: 'Copy phone', icon: <Phone className="size-4" />, onClick: () => onRevealPhone(s.phone) },
+                      { label: 'Copy phone', icon: <Phone className="size-4" />, onClick: () => onRevealPhone(s.phone), disabled: !s.phone },
                       { label: 'Edit name / phone / division', icon: <Pencil className="size-4" />, onClick: () => openEditModal(s.sn, s.name, s.phone, s.division) },
                       { label: 'Delete their votes', icon: <Trash2 className="size-4" />, onClick: () => onDeleteVotesFor(s.sn, s.name), danger: true },
                       { label: 'Remove from roll', icon: <UserMinus className="size-4" />, onClick: () => onRemoveNominee(s.sn, s.name), danger: true },
@@ -1269,7 +1276,7 @@ function StaffView({
                   className="rounded-xl border border-[#d7e5de] bg-[#fbfdfc] px-4 py-3 text-sm outline-none ring-[#0b8a51] focus:ring-2"
                 />
               </label>
-              <label className="flex flex-col gap-1.5 text-sm font-semibold text-[#315d4a]">Phone number
+              <label className="flex flex-col gap-1.5 text-sm font-semibold text-[#315d4a]">Phone number <span className="font-normal text-[#8a9a91]">(optional — needed to vote)</span>
                 <input
                   value={newPhone}
                   onChange={(e) => setNewPhone(e.target.value)}
@@ -1296,15 +1303,15 @@ function StaffView({
               )}
               <button
                 type="submit"
-                disabled={addBusy || !newName.trim() || !newPhone.trim()}
+                disabled={addBusy || !newName.trim()}
                 className="flex items-center justify-center gap-2 rounded-xl bg-[#0b8a51] py-3.5 text-sm font-bold text-white transition hover:bg-[#0a7a47] disabled:opacity-40"
               >
                 {addBusy && <Loader2 className="size-4 animate-spin" />} {editingSn !== null ? 'Save changes' : 'Add to roll'}
               </button>
               <p className="text-center text-xs text-[#8a9a91]">
                 {editingSn !== null
-                  ? 'Votes already cast keep the phone number used at vote time.'
-                  : 'They can immediately sign in to vote. Use “Nominate for ballot” to make them votable on the front page.'}
+                  ? 'Votes already cast keep the phone number used at vote time. Leave phone blank for staff whose number is not yet known.'
+                  : 'Phone is optional — staff without one appear on the roll but can only vote once their number is added. Use “Nominate for ballot” to put them on the public ballot.'}
               </p>
             </form>
           </div>

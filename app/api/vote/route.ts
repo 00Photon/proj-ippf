@@ -67,7 +67,7 @@ export async function POST(request: NextRequest) {
       ok: true,
       message: 'Vote submitted securely.',
       vote: inserted[0],
-      voter: { name: voter.name, phone: normalizePhone(voter.phone) },
+      voter: { name: voter.name, phone: normalizePhone(phoneRaw) },
       candidate: { sn: candidate.sn, name: candidate.name },
       audit: {
         ip: audit.ip,
