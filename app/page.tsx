@@ -355,7 +355,7 @@ export default function Page() {
                 )}
               </ul>
               <button
-                onClick={() => setIsVoteOpen(true)}
+                onClick={() => { setVoteMode('general'); setIsVoteOpen(true) }}
                 className="flex w-full items-center justify-between border-t border-[#e3ebe5] px-5 py-4 text-left text-sm font-semibold text-[#087443] transition hover:bg-[#f2f8f4]"
               >
                 View the full ballot — {loadingStaff ? '…' : `${ballotStaff.length} names`}
@@ -432,8 +432,8 @@ export default function Page() {
         </div>
       </footer>
 
-      {/* Vote modal */}
-      {isVoteOpen && votingOpen !== false && (
+      {/* Vote modal — gated by the phase matching the button that opened it */}
+      {isVoteOpen && (voteMode === 'division' ? divisionOpen !== false : votingOpen !== false) && (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-[#12271f]/55 backdrop-blur-[2px] sm:items-center sm:p-5" role="dialog" aria-modal="true" aria-labelledby="vote-title">
           <div className="max-h-[92vh] w-full max-w-lg overflow-y-auto bg-white shadow-2xl sm:max-w-xl">
             <div className="flex items-start justify-between border-b border-[#e3ebe5] px-6 py-5 sm:px-8">
