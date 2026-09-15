@@ -508,7 +508,7 @@ export default function Page() {
                     <p className="text-sm font-semibold text-[#15291f]">{voter.division ?? 'No division set'}</p>
                     <p className="mt-0.5 text-xs text-[#5c6f63]">
                       {voter.division
-                        ? 'You are voting for colleagues within your own division.'
+                        ? 'You are voting for colleagues within your own division. You cannot vote for yourself.'
                         : 'Your division is not set on the roll — contact the admin to be assigned.'}
                     </p>
                   </div>
@@ -537,12 +537,14 @@ export default function Page() {
                         <button
                           key={member.sn}
                           onClick={() => setSelectedSn(member.sn)}
-                          className={`flex w-full items-center gap-3 px-4 py-2.5 text-left transition ${selectedSn === member.sn ? 'bg-[#eef8f1]' : 'bg-white hover:bg-[#f7faf8]'}`}
+                          disabled={member.sn === voter?.sn}
+                          title={member.sn === voter?.sn ? 'You cannot vote for yourself' : undefined}
+                          className={`flex w-full items-center gap-3 px-4 py-2.5 text-left transition ${member.sn === voter?.sn ? 'cursor-not-allowed bg-[#f6f8f7] opacity-70' : selectedSn === member.sn ? 'bg-[#eef8f1]' : 'bg-white hover:bg-[#f7faf8]'}`}
                         >
                           <span className="w-7 shrink-0 font-mono text-xs text-[#9aab9f] tabular-nums">{String(member.sn).padStart(2, '0')}</span>
                           <span className="min-w-0 flex-1 truncate text-sm font-medium text-[#2b4033]">
                             {member.name}
-                            {voteMode === 'division' && member.sn === voter?.sn && <span className="ml-1.5 font-bold text-[#087443]">(You)</span>}
+                            {member.sn === voter?.sn && <span className="ml-1.5 font-bold text-[#087443]">(You — cannot vote for yourself)</span>}
                           </span>
                           {voteMode === 'general' && member.division && (
                             <span className="shrink-0 rounded-full bg-[#e8eef5] px-2 py-0.5 text-[10px] font-bold text-[#2f5470]">{member.division}</span>
@@ -588,7 +590,7 @@ export default function Page() {
                 </div>
 
                 <button
-                  disabled={selectedSn === null || submitting}
+                  disabled={selectedSn === null || selectedSn === voter?.sn || submitting}
                   onClick={submitVote}
                   className="flex items-center justify-center gap-2 bg-[#087443] py-4 text-sm font-semibold tracking-wide text-white transition hover:bg-[#06603a] disabled:cursor-not-allowed disabled:bg-[#c3cec7]"
                 >

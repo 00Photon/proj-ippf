@@ -107,6 +107,11 @@ export async function recordDivisionVote(payload: {
     return { ok: false, error: `You can only vote for staff in your own division (${voter.division}).`, status: 403 }
   }
 
+  // No self-voting — a staff member cannot vote for themselves
+  if (candidate.sn === voter.sn) {
+    return { ok: false, error: 'You cannot vote for yourself.', status: 400 }
+  }
+
   try {
     await sql`
       INSERT INTO division_votes (voter_phone, cycle_month, division, candidate_sn, candidate_name, remarks, ip_address, user_agent, location, is_proxy)

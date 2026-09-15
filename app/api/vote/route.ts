@@ -50,6 +50,11 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Please select a nominee who is on the ballot.' }, { status: 400 })
   }
 
+  // 3. No self-voting — a staff member cannot vote for themselves
+  if (candidate.sn === voter.sn) {
+    return NextResponse.json({ error: 'You cannot vote for yourself.' }, { status: 400 })
+  }
+
   // 3. Record the vote — voter_phone is UNIQUE, so a second vote fails at DB level.
   //    Audit capture (IP, user agent, rough location) happens first but never
   //    blocks or fails a vote.
