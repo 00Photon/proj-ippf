@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Award,
   BarChart3,
+  Building2,
   Check,
   ClipboardList,
   Eye,
@@ -41,6 +42,7 @@ interface AdminUser {
 }
 interface Settings {
   votingOpen: boolean
+  divisionOpen: boolean
   votingMonth: string
 }
 interface Cycle {
@@ -86,6 +88,7 @@ interface StaffRow {
   sn: number
   name: string
   phone: string
+  division: string | null
   nominated: boolean
   votesReceived: number
   hasVoted: boolean
@@ -94,7 +97,38 @@ interface StaffData {
   total: number
   nominatedCount: number
   votedCount: number
+  divisionCount: number
   staff: StaffRow[]
+}
+interface DivisionStanding {
+  division: string
+  totalVotes: number
+  voters: number
+  leader: { sn: number; name: string; voteCount: number } | null
+  results: { sn: number; name: string; voteCount: number }[]
+}
+interface DivisionVoteDetail {
+  id: number
+  voterPhone: string
+  candidateSn: number
+  candidateName: string
+  division: string
+  remarks: string | null
+  ip: string | null
+  location: string | null
+  userAgent: string | null
+  isProxy: boolean
+  votedAt: string
+}
+interface DivisionCycle {
+  month: string
+  votes: number
+  isCurrent: boolean
+}
+interface DivisionsData {
+  standings: DivisionStanding[]
+  votes: DivisionVoteDetail[]
+  cycles: DivisionCycle[]
 }
 
 type View = 'overview' | 'votes' | 'staff' | 'settings'
@@ -310,12 +344,14 @@ function RowActions({ items }: { items: { label: string; icon: React.ReactNode; 
 
 function OverviewView({
   results,
+  divisionData,
   settings,
   cycles,
   month,
   onMonthChange,
 }: {
   results: Results | null
+  divisionData: DivisionsData | null
   settings: Settings | null
   cycles: Cycle[]
   month: string
@@ -439,6 +475,31 @@ function OverviewView({
 
       <Card>
         <CardTitle
+          eyebrow="Division vote"
+          title="Division winners so far"
+          right={<span className={`rounded-full px-3 py-1 text-xs font-bold ${settings?.divisionOpen ? 'bg-[#e3f4e9] text-[#0b8a51]' : 'bg-[#f1f4f2] text-[#8a9a91]'}`}>{settings?.divisionOpen ? 'Division voting open' : 'Division voting closed'}</span>}
+        />
+        <p className="mt-1 text-sm text-[#71867d]">Each division's top staff becomes the general-ballot nominee when divisions close.</p>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          {divisionData?.standings.map((d) => (
+            <div key={d.division} className="rounded-2xl border border-[#e4eee8] bg-[#fbfdfc] p-4">
+              <div className="flex items-center justify-between gap-2">
+                <p className="truncate text-sm font-bold text-[#26483a]" title={d.division}>{d.division}</p>
+                <span className="shrink-0 rounded-full bg-[#eef7f2] px-2 py-0.5 text-[10px] font-bold text-[#0b8a51]">{d.voters} vote{d.voters === 1 ? '' : 's'}</span>
+              </div>
+              <p className="mt-2 truncate text-sm font-semibold text-[#0b8a51]">
+                {d.leader ? `★ ${d.leader.name} · ${d.leader.voteCount}` : 'No votes yet'}
+              </p>
+            </div>
+          ))}
+          {divisionData && divisionData.standings.length === 0 && (
+            <p className="text-sm text-[#8a9a91]">No divisions assigned yet — set divisions on the Staff tab.</p>
+          )}
+        </div>
+      </Card>
+
+      <Card>
+        <CardTitle
           eyebrow="Live feed"
           title="Recent votes"
           right={<span className="rounded-full bg-[#eef7f2] px-3 py-1 text-xs font-bold text-[#0b8a51]">{settings?.votingOpen ? 'Voting open' : 'Voting closed'} · {month === '__all__' ? 'All time' : month}</span>}
@@ -484,9 +545,11 @@ function VotesView({ month, onMonthChange, onDeleteVote, refreshKey }: { month: 
   const [searchInput, setSearchInput] = useState('')
   const [search, setSearch] = useState('') // debounced
   const [proxyOnly, setProxyOnly] = useState(false)
+  const [divisionMode, setDivisionMode] = useState(false)
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(25)
   const [data, setData] = useState<VotesPage | null>(null)
+  const [divisionRows, setDivisionRows] = useState<DivisionVoteDetail[] | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [exporting, setExporting] = useState(false)
@@ -501,8 +564,36 @@ function VotesView({ month, onMonthChange, onDeleteVote, refreshKey }: { month: 
     return () => clearTimeout(t)
   }, [searchInput])
 
+  // Division vote audit rows (separate, read-only feed)
+  useEffect(() => {
+    if (!divisionMode) return
+    let cancelled = false
+    setLoading(true)
+    setError('')
+    const params = new URLSearchParams()
+    if (month && month !== '__all__') params.set('month', month)
+    fetch(`/api/admin/divisions?${params.toString()}`)
+      .then(async (res) => {
+        if (!res.ok) throw new Error('Failed to load')
+        return (await res.json()) as { votes: DivisionVoteDetail[] }
+      })
+      .then((next) => {
+        if (!cancelled) setDivisionRows(next.votes ?? [])
+      })
+      .catch(() => {
+        if (!cancelled) setError('Could not load division votes. Try refreshing.')
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [divisionMode, month, refreshKey])
+
   // Fetch current page from the server whenever query changes
   useEffect(() => {
+    if (divisionMode) return
     let cancelled = false
     setLoading(true)
     setError('')
@@ -638,8 +729,16 @@ function VotesView({ month, onMonthChange, onDeleteVote, refreshKey }: { month: 
             ))}
           </select>
           <button
+            onClick={() => setDivisionMode(!divisionMode)}
+            className={`flex items-center justify-center gap-2 rounded-xl border px-4 py-2.5 text-xs font-bold transition ${divisionMode ? 'border-[#0b8a51] bg-[#e3f4e9] text-[#0b8a51]' : 'border-[#d7e5de] bg-[#fbfdfc] text-[#587268] hover:border-[#b8d8c5]'}`}
+            title="Show division votes instead of general votes"
+          >
+            <Building2 className="size-3.5" /> Division votes
+          </button>
+          <button
             onClick={() => setProxyOnly(!proxyOnly)}
-            className={`flex items-center justify-center gap-2 rounded-xl border px-4 py-2.5 text-xs font-bold transition ${proxyOnly ? 'border-[#b04a4a] bg-[#fdf1f1] text-[#b04a4a]' : 'border-[#d7e5de] bg-[#fbfdfc] text-[#587268] hover:border-[#b8d8c5]'}`}
+            disabled={divisionMode}
+            className={`flex items-center justify-center gap-2 rounded-xl border px-4 py-2.5 text-xs font-bold transition ${proxyOnly ? 'border-[#b04a4a] bg-[#fdf1f1] text-[#b04a4a]' : 'border-[#d7e5de] bg-[#fbfdfc] text-[#587268] hover:border-[#b8d8c5]'} disabled:opacity-40`}
           >
             ⚠ Flagged only
           </button>
@@ -665,6 +764,7 @@ function VotesView({ month, onMonthChange, onDeleteVote, refreshKey }: { month: 
             <tr className="border-b border-[#e4eee8] text-left text-xs uppercase tracking-wider text-[#71867d]">
               <th className="pb-3 pr-3 font-bold">#</th>
               <th className="pb-3 pr-3 font-bold">Voter</th>
+              {divisionMode && <th className="pb-3 pr-3 font-bold">Division</th>}
               <th className="pb-3 pr-3 font-bold">Voted for</th>
               <th className="pb-3 pr-3 font-bold">Remarks</th>
               <th className="pb-3 pr-3 font-bold">IP address</th>
@@ -675,7 +775,32 @@ function VotesView({ month, onMonthChange, onDeleteVote, refreshKey }: { month: 
             </tr>
           </thead>
           <tbody>
-            {votes.map((v) => (
+            {divisionMode && (divisionRows ?? []).map((v) => (
+              <tr key={`dv-${v.id}`} className="border-b border-[#f0f5f2] bg-[#fbfdfc] transition hover:bg-[#f2f8f4]">
+                <td className="py-3 pr-3 font-mono text-xs text-[#a4b8ae]">{v.id}</td>
+                <td className="py-3 pr-3">
+                  <p className="font-mono text-xs font-bold text-[#26483a]">{formatPhone(v.voterPhone)}</p>
+                </td>
+                <td className="py-3 pr-3">
+                  <span className="rounded-full bg-[#e8eef5] px-2.5 py-1 text-[11px] font-bold text-[#2f5470]">{v.division}</span>
+                </td>
+                <td className="py-3 pr-3 font-semibold text-[#26483a]">
+                  {v.candidateName} <span className="font-mono text-xs text-[#a4b8ae]">#{v.candidateSn}</span>
+                </td>
+                <td className="max-w-[180px] py-3 pr-3">
+                  <p className="truncate text-xs text-[#587268]" title={v.remarks ?? undefined}>{v.remarks || '—'}</p>
+                </td>
+                <td className="py-3 pr-3">
+                  <span className="font-mono text-xs text-[#587268]">{v.ip ?? '—'}</span>
+                  {v.isProxy && <span className="ml-1.5 rounded-md bg-[#fdeaea] px-1.5 py-0.5 text-[10px] font-bold text-[#b04a4a]">VPN</span>}
+                </td>
+                <td className="py-3 pr-3 text-xs text-[#587268]">{v.location ?? '—'}</td>
+                <td className="py-3 pr-3 text-xs text-[#587268]">{deviceLabel(v.userAgent)}</td>
+                <td className="py-3 pr-3 text-xs text-[#587268]">{fmtDateTime(v.votedAt)}</td>
+                <td className="py-3 pr-1 text-xs text-[#8a9a91]">Read-only</td>
+              </tr>
+            ))}
+            {!divisionMode && votes.map((v) => (
               <tr key={v.id} className="border-b border-[#f0f5f2] transition hover:bg-[#f7fbf9]">
                 <td className="py-3 pr-3 font-mono text-xs text-[#a4b8ae]">{v.id}</td>
                 <td className="py-3 pr-3">
@@ -706,10 +831,16 @@ function VotesView({ month, onMonthChange, onDeleteVote, refreshKey }: { month: 
                 </td>
               </tr>
             ))}
-            {votes.length === 0 && !loading && (
+            {((divisionMode && (divisionRows ?? []).length === 0) || (!divisionMode && votes.length === 0)) && !loading && (
               <tr>
-                <td colSpan={9} className="py-10 text-center text-sm text-[#8a9a91]">
-                  {error ? error : total === 0 && !search && !proxyOnly ? 'No votes recorded yet.' : 'No votes match your filter.'}
+                <td colSpan={divisionMode ? 10 : 9} className="py-10 text-center text-sm text-[#8a9a91]">
+                  {error
+                    ? error
+                    : divisionMode
+                      ? 'No division votes recorded yet.'
+                      : total === 0 && !search && !proxyOnly
+                        ? 'No votes recorded yet.'
+                        : 'No votes match your filter.'}
                 </td>
               </tr>
             )}
@@ -778,43 +909,54 @@ function VotesView({ month, onMonthChange, onDeleteVote, refreshKey }: { month: 
 
 function StaffView({
   staffData,
+  divisions,
   onDeleteVotesFor,
   onRevealPhone,
   onAddNominee,
   onEditNominee,
   onRemoveNominee,
   onSetNominated,
+  onSetDivision,
 }: {
   staffData: StaffData | null
+  divisions: string[]
   onDeleteVotesFor: (sn: number, name: string) => void
   onRevealPhone: (phone: string) => void
-  onAddNominee: (name: string, phone: string) => Promise<boolean | string>
-  onEditNominee: (sn: number, name: string, phone: string) => Promise<boolean | string>
+  onAddNominee: (name: string, phone: string, division: string) => Promise<boolean | string>
+  onEditNominee: (sn: number, name: string, phone: string, division: string) => Promise<boolean | string>
   onRemoveNominee: (sn: number, name: string) => Promise<void>
   onSetNominated: (sn: number, name: string, nominated: boolean) => Promise<void>
+  onSetDivision: (sn: number, name: string, division: string) => Promise<void>
 }) {
   const [search, setSearch] = useState('')
-  const [filter, setFilter] = useState<'all' | 'voted' | 'not-voted' | 'nominated' | 'not-nominated'>('all')
+  const [filter, setFilter] = useState<'all' | 'voted' | 'not-voted' | 'nominated' | 'not-nominated' | 'no-division'>('all')
   const [showAddForm, setShowAddForm] = useState(false)
   // When editingSn is set, the modal edits that nominee instead of adding
   const [editingSn, setEditingSn] = useState<number | null>(null)
   const [newName, setNewName] = useState('')
   const [newPhone, setNewPhone] = useState('')
+  const [newDivision, setNewDivision] = useState('')
   const [addError, setAddError] = useState('')
   const [addBusy, setAddBusy] = useState(false)
+  // Division assignment modal { sn, name, current division }
+  const [divisionFor, setDivisionFor] = useState<StaffRow | null>(null)
+  const [divisionDraft, setDivisionDraft] = useState('')
+  const [divisionBusy, setDivisionBusy] = useState(false)
 
   function openAddModal() {
     setEditingSn(null)
     setNewName('')
     setNewPhone('')
+    setNewDivision('')
     setAddError('')
     setShowAddForm(true)
   }
 
-  function openEditModal(sn: number, name: string, phone: string) {
+  function openEditModal(sn: number, name: string, phone: string, division: string | null) {
     setEditingSn(sn)
     setNewName(name)
     setNewPhone(phone)
+    setNewDivision(division ?? '')
     setAddError('')
     setShowAddForm(true)
   }
@@ -824,15 +966,16 @@ function StaffView({
     setAddError('')
     setAddBusy(true)
     const result = editingSn !== null
-      ? await onEditNominee(editingSn, newName, newPhone)
-      : await onAddNominee(newName, newPhone)
+      ? await onEditNominee(editingSn, newName, newPhone, newDivision)
+      : await onAddNominee(newName, newPhone, newDivision)
     if (result === true) {
       setShowAddForm(false)
       setNewName('')
       setNewPhone('')
+      setNewDivision('')
       setEditingSn(null)
     } else {
-      setAddError(typeof result === 'string' ? result : 'Could not save the nominee.')
+      setAddError(typeof result === 'string' ? result : 'Could not save the staff member.')
     }
     setAddBusy(false)
   }
@@ -845,8 +988,9 @@ function StaffView({
       if (filter === 'not-voted' && s.hasVoted) return false
       if (filter === 'nominated' && !s.nominated) return false
       if (filter === 'not-nominated' && s.nominated) return false
+      if (filter === 'no-division' && s.division) return false
       if (!q) return true
-      return s.name.toLowerCase().includes(q) || s.phone.includes(q) || String(s.sn).includes(q)
+      return s.name.toLowerCase().includes(q) || s.phone.includes(q) || String(s.sn).includes(q) || (s.division ?? '').toLowerCase().includes(q)
     })
   }, [staffData, search, filter])
 
@@ -884,18 +1028,19 @@ function StaffView({
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search name, phone, S/N…"
+              placeholder="Search name, phone, S/N, division…"
               className="w-full rounded-xl border border-[#d7e5de] bg-[#fbfdfc] py-2.5 pl-9 pr-4 text-sm outline-none ring-[#0b8a51] focus:ring-2 sm:w-64"
             />
           </label>
           <select
             value={filter}
-            onChange={(e) => setFilter(e.target.value as 'all' | 'voted' | 'not-voted' | 'nominated' | 'not-nominated')}
+            onChange={(e) => setFilter(e.target.value as 'all' | 'voted' | 'not-voted' | 'nominated' | 'not-nominated' | 'no-division')}
             className="rounded-xl border border-[#d7e5de] bg-[#fbfdfc] px-3 py-2.5 text-sm font-semibold text-[#315d4a] outline-none ring-[#0b8a51] focus:ring-2"
           >
             <option value="all">All staff</option>
             <option value="nominated">★ On the ballot</option>
             <option value="not-nominated">Not on the ballot</option>
+            <option value="no-division">No division set</option>
             <option value="voted">✓ Have voted</option>
             <option value="not-voted">Not yet voted</option>
           </select>
@@ -922,6 +1067,7 @@ function StaffView({
             <tr className="border-b border-[#e4eee8] text-left text-xs uppercase tracking-wider text-[#71867d]">
               <th className="pb-3 pr-3 font-bold">S/N</th>
               <th className="pb-3 pr-3 font-bold">Name</th>
+              <th className="pb-3 pr-3 font-bold">Division</th>
               <th className="pb-3 pr-3 font-bold">Ballot</th>
               <th className="pb-3 pr-3 font-bold">Phone</th>
               <th className="pb-3 pr-3 font-bold">Votes received</th>
@@ -938,6 +1084,25 @@ function StaffView({
                     <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-[#eef7f2] text-[10px] font-bold text-[#0b8a51]">{initialsOf(s.name)}</div>
                     <span className="font-semibold text-[#26483a]">{s.name}</span>
                   </div>
+                </td>
+                <td className="py-3 pr-3">
+                  {s.division ? (
+                    <button
+                      onClick={() => { setDivisionFor(s); setDivisionDraft(s.division ?? '') }}
+                      className="rounded-full bg-[#e8eef5] px-2.5 py-1 text-[11px] font-bold text-[#2f5470] transition hover:bg-[#dce6f0]"
+                      title="Change division"
+                    >
+                      {s.division}
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => { setDivisionFor(s); setDivisionDraft('') }}
+                      className="rounded-full bg-[#f1f4f2] px-2.5 py-1 text-[11px] font-bold text-[#8a9a91] transition hover:bg-[#e5ebe7]"
+                      title="Assign a division"
+                    >
+                      + Set division
+                    </button>
+                  )}
                 </td>
                 <td className="py-3 pr-3">
                   {s.nominated ? (
@@ -969,11 +1134,12 @@ function StaffView({
                 <td className="py-3 pr-1">
                   <RowActions
                     items={[
+                      { label: 'Assign division', icon: <Building2 className="size-4" />, onClick: () => { setDivisionFor(s); setDivisionDraft(s.division ?? '') } },
                       s.nominated
                         ? { label: 'Withdraw from ballot', icon: <StarOff className="size-4" />, onClick: () => onSetNominated(s.sn, s.name, false) }
                         : { label: 'Nominate for ballot', icon: <Star className="size-4" />, onClick: () => onSetNominated(s.sn, s.name, true) },
                       { label: 'Copy phone', icon: <Phone className="size-4" />, onClick: () => onRevealPhone(s.phone) },
-                      { label: 'Edit name / phone', icon: <Pencil className="size-4" />, onClick: () => openEditModal(s.sn, s.name, s.phone) },
+                      { label: 'Edit name / phone / division', icon: <Pencil className="size-4" />, onClick: () => openEditModal(s.sn, s.name, s.phone, s.division) },
                       { label: 'Delete their votes', icon: <Trash2 className="size-4" />, onClick: () => onDeleteVotesFor(s.sn, s.name), danger: true },
                       { label: 'Remove from roll', icon: <UserMinus className="size-4" />, onClick: () => onRemoveNominee(s.sn, s.name), danger: true },
                     ]}
@@ -983,7 +1149,7 @@ function StaffView({
             ))}
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={7} className="py-10 text-center text-sm text-[#8a9a91]">No staff match your filter.</td>
+                <td colSpan={8} className="py-10 text-center text-sm text-[#8a9a91]">No staff match your filter.</td>
               </tr>
             )}
           </tbody>
@@ -992,6 +1158,66 @@ function StaffView({
       <div className="border-t border-[#eef3f0] px-6 py-4">
         <p className="text-xs text-[#8a9a91]">Showing {filtered.length} of {staffData?.total ?? 0} staff · {staffData?.votedCount ?? 0} have voted</p>
       </div>
+
+      {/* Division assignment modal */}
+      {divisionFor && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-[#10261d]/50 backdrop-blur-sm sm:items-center sm:p-5" role="dialog" aria-modal="true">
+          <div className="w-full max-w-md rounded-t-[24px] bg-white p-6 shadow-2xl sm:rounded-[24px] sm:p-7">
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.14em] text-[#0b8a51]">Division vote</p>
+                <h2 className="mt-1 text-xl font-bold">Assign division</h2>
+                <p className="mt-1 text-sm text-[#71867d]">{divisionFor.name} · S/N {divisionFor.sn}</p>
+              </div>
+              <button onClick={() => setDivisionFor(null)} className="rounded-xl p-2 text-[#71867d] hover:bg-[#f1f6f3]" aria-label="Close">
+                <X className="size-5" />
+              </button>
+            </div>
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault()
+                setDivisionBusy(true)
+                await onSetDivision(divisionFor.sn, divisionFor.name, divisionDraft)
+                setDivisionBusy(false)
+                setDivisionFor(null)
+              }}
+              className="mt-6 flex flex-col gap-4"
+            >
+              <label className="flex flex-col gap-1.5 text-sm font-semibold text-[#315d4a]">Division name
+                <input
+                  value={divisionDraft}
+                  onChange={(e) => setDivisionDraft(e.target.value)}
+                  placeholder="e.g. Payroll, Audit, ICT"
+                  autoComplete="off"
+                  className="rounded-xl border border-[#d7e5de] bg-[#fbfdfc] px-4 py-3 text-sm outline-none ring-[#0b8a51] focus:ring-2"
+                />
+              </label>
+              <div className="flex flex-wrap gap-1.5">
+                {divisions.map((d) => (
+                  <button
+                    key={d}
+                    type="button"
+                    onClick={() => setDivisionDraft(d)}
+                    className={`rounded-full border px-3 py-1.5 text-xs font-bold transition ${divisionDraft === d ? 'border-[#0b8a51] bg-[#e3f4e9] text-[#0b8a51]' : 'border-[#d7e5de] bg-[#fbfdfc] text-[#587268] hover:border-[#9cc9b2]'}`}
+                  >
+                    {d}
+                  </button>
+                ))}
+              </div>
+              <button
+                type="submit"
+                disabled={divisionBusy}
+                className="flex items-center justify-center gap-2 rounded-xl bg-[#0b8a51] py-3.5 text-sm font-bold text-white transition hover:bg-[#0a7a47] disabled:opacity-40"
+              >
+                {divisionBusy && <Loader2 className="size-4 animate-spin" />} Save division
+              </button>
+              <p className="text-center text-xs text-[#8a9a91]">
+                Staff can only division-vote within their own division. Leave blank to clear.
+              </p>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Add / edit nominee modal */}
       {showAddForm && (
@@ -1022,6 +1248,15 @@ function StaffView({
                   onChange={(e) => setNewPhone(e.target.value)}
                   inputMode="numeric"
                   placeholder="0803 000 0000"
+                  autoComplete="off"
+                  className="rounded-xl border border-[#d7e5de] bg-[#fbfdfc] px-4 py-3 text-sm outline-none ring-[#0b8a51] focus:ring-2"
+                />
+              </label>
+              <label className="flex flex-col gap-1.5 text-sm font-semibold text-[#315d4a]">Division
+                <input
+                  value={newDivision}
+                  onChange={(e) => setNewDivision(e.target.value)}
+                  placeholder="e.g. payroll, audit, ict"
                   autoComplete="off"
                   className="rounded-xl border border-[#d7e5de] bg-[#fbfdfc] px-4 py-3 text-sm outline-none ring-[#0b8a51] focus:ring-2"
                 />
@@ -1057,6 +1292,8 @@ function SettingsView({
   setMonthDraft,
   monthSaved,
   onToggleVoting,
+  onToggleDivisionVoting,
+  onCloseDivisionsAndNominate,
   onSaveMonth,
   toggling,
   cycles,
@@ -1066,6 +1303,8 @@ function SettingsView({
   setMonthDraft: (m: string) => void
   monthSaved: boolean
   onToggleVoting: () => void
+  onToggleDivisionVoting: () => void
+  onCloseDivisionsAndNominate: () => void
   onSaveMonth: () => void
   toggling: boolean
   cycles: Cycle[]
@@ -1135,6 +1374,44 @@ function SettingsView({
         </button>
         <p className="mt-3 text-center text-xs text-[#8a9a91]">
           {settings?.votingOpen ? 'Staff can currently submit votes.' : 'Vote submissions are blocked at API level.'}
+        </p>
+      </Card>
+
+      {/* Division phase control */}
+      <Card className={`transition-all ${settings?.divisionOpen ? 'border-[#0b8a51] shadow-[0_0_0_3px_rgba(11,138,81,0.12),0_0_28px_rgba(11,138,81,0.35)]' : ''}`}>
+        <div className="flex items-start justify-between">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.14em] text-[#71867d]">Division phase</p>
+            <h2 className={`mt-1 text-2xl font-bold tracking-tight ${settings?.divisionOpen ? 'text-[#0b8a51]' : 'text-[#8a9a91]'}`}>
+              {settings?.divisionOpen ? 'Division voting OPEN' : 'Division voting CLOSED'}
+            </h2>
+            <p className="mt-1 text-sm text-[#71867d]">Staff vote within their own division. Winners join the general ballot.</p>
+          </div>
+          <div className={`flex size-12 items-center justify-center rounded-2xl ${settings?.divisionOpen ? 'bg-[#e3f4e9] text-[#0b8a51]' : 'bg-[#f0f2f1] text-[#8a9a91]'}`}>
+            <Building2 className="size-6" />
+          </div>
+        </div>
+        <div className="mt-6 flex flex-col gap-2 sm:flex-row">
+          <button
+            onClick={onToggleDivisionVoting}
+            disabled={toggling}
+            className={`flex flex-1 items-center justify-center gap-2 rounded-xl py-3.5 text-sm font-bold text-white transition-all disabled:opacity-50 ${settings?.divisionOpen ? 'bg-[#b04a4a] hover:bg-[#9d3f3f]' : 'bg-[#0b8a51] hover:bg-[#0a7a47]'}`}
+          >
+            {toggling ? <Loader2 className="size-4 animate-spin" /> : <Power className="size-4" />}
+            {settings?.divisionOpen ? 'Close division voting' : 'Open division voting'}
+          </button>
+          <button
+            onClick={onCloseDivisionsAndNominate}
+            disabled={toggling || !settings?.divisionOpen}
+            className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-[#d4a017] bg-[#fdf6e3] py-3.5 text-sm font-bold text-[#b78014] transition hover:bg-[#faf0d0] disabled:opacity-40"
+            title="Nominate each division's top staff and close division voting"
+          >
+            {toggling ? <Loader2 className="size-4 animate-spin" /> : <Award className="size-4" />}
+            Close & nominate winners
+          </button>
+        </div>
+        <p className="mt-3 text-center text-xs text-[#8a9a91]">
+          “Close & nominate” locks in each division's top vote-getter as the general-ballot nominee and closes division voting. The manual nominate toggle on the Staff tab still works as an override.
         </p>
       </Card>
 
@@ -1276,6 +1553,7 @@ export default function AdminPage() {
   const [results, setResults] = useState<Results | null>(null)
   const [staffData, setStaffData] = useState<StaffData | null>(null)
   const [cycles, setCycles] = useState<Cycle[]>([])
+  const [divisionData, setDivisionData] = useState<DivisionsData | null>(null)
   const [loadingData, setLoadingData] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
 
@@ -1295,11 +1573,12 @@ export default function AdminPage() {
   const loadData = useCallback(async () => {
     setLoadingData(true)
     try {
-      const [sRes, rRes, stRes, cRes] = await Promise.all([
+      const [sRes, rRes, stRes, cRes, dRes] = await Promise.all([
         fetch('/api/admin/settings'),
         fetch(`/api/admin/results?${monthFilter === '__all__' ? 'all=1' : `month=${encodeURIComponent(monthFilter)}`}`),
         fetch('/api/admin/staff'),
         fetch('/api/admin/cycles'),
+        fetch(`/api/admin/divisions?${monthFilter === '__all__' ? '' : `month=${encodeURIComponent(monthFilter)}`}`),
       ])
       if (sRes.ok) {
         const s = (await sRes.json()) as Settings
@@ -1312,6 +1591,7 @@ export default function AdminPage() {
         const c = (await cRes.json()) as { cycles: Cycle[] }
         setCycles(c.cycles ?? [])
       }
+      if (dRes.ok) setDivisionData((await dRes.json()) as DivisionsData)
     } finally {
       setLoadingData(false)
     }
@@ -1437,12 +1717,12 @@ export default function AdminPage() {
     showToast(true, `Copied ${formatPhone(phone)}`)
   }
 
-  async function addNominee(name: string, phone: string): Promise<boolean | string> {
+  async function addNominee(name: string, phone: string, division: string): Promise<boolean | string> {
     try {
       const res = await fetch('/api/admin/nominees', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, phone }),
+        body: JSON.stringify({ name, phone, division }),
       })
       const data = await res.json()
       if (!res.ok) return (data.error as string) ?? 'Failed to add nominee.'
@@ -1454,12 +1734,12 @@ export default function AdminPage() {
     }
   }
 
-  async function editNominee(sn: number, name: string, phone: string): Promise<boolean | string> {
+  async function editNominee(sn: number, name: string, phone: string, division: string): Promise<boolean | string> {
     try {
       const res = await fetch('/api/admin/nominees', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sn, name, phone }),
+        body: JSON.stringify({ sn, name, phone, division }),
       })
       const data = await res.json()
       if (!res.ok) return (data.error as string) ?? 'Failed to update nominee.'
@@ -1506,6 +1786,75 @@ export default function AdminPage() {
       showToast(false, 'Network error. Please try again.')
     }
   }
+
+  async function setDivision(sn: number, name: string, division: string) {
+    try {
+      const res = await fetch('/api/admin/nominees', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sn, division }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        showToast(false, (data.error as string) ?? 'Failed to set division')
+        return
+      }
+      showToast(true, division ? `${name} → ${division}` : `${name} division cleared`)
+      await loadData()
+    } catch {
+      showToast(false, 'Network error. Please try again.')
+    }
+  }
+
+  async function toggleDivisionVoting() {
+    if (!settings) return
+    setToggling(true)
+    try {
+      const res = await fetch('/api/admin/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ divisionOpen: !settings.divisionOpen }),
+      })
+      if (res.ok) {
+        const next = (await res.json()) as Settings
+        setSettings(next)
+        showToast(true, next.divisionOpen ? 'Division voting is now open' : 'Division voting is now closed')
+      }
+    } finally {
+      setToggling(false)
+    }
+  }
+
+  async function closeDivisionsAndNominate() {
+    if (!settings) return
+    const expected = divisionData?.standings.filter((s) => s.leader).length ?? 0
+    if (!confirm(`Close division voting and nominate each division's top vote-getter${expected ? ` (${expected} division winner(s))` : ''}? Nominees are added to the general ballot.`)) return
+    setToggling(true)
+    try {
+      const res = await fetch('/api/admin/divisions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cycleMonth: settings.votingMonth }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        showToast(false, (data.error as string) ?? 'Failed to nominate division winners')
+        return
+      }
+      const winners = (data.nominated as { division: string; name: string }[]) ?? []
+      showToast(true, winners.length ? `Nominated: ${winners.map((w) => w.name).join(', ')}` : 'No division votes to nominate from')
+      await loadData()
+      setRefreshKey((k) => k + 1)
+    } finally {
+      setToggling(false)
+    }
+  }
+
+  // Distinct divisions on the roll (for the assignment modal quick-pick)
+  const divisions = useMemo(
+    () => [...new Set((staffData?.staff ?? []).map((s) => s.division).filter((d): d is string => Boolean(d)))].sort(),
+    [staffData],
+  )
 
   if (checking) {
     return (
@@ -1582,7 +1931,7 @@ export default function AdminPage() {
 
         <main className="mx-auto w-full max-w-7xl flex-1 px-4 pb-24 pt-5 sm:px-5 lg:px-8 lg:pb-6 lg:pt-6">
           {view === 'overview' && (
-            <OverviewView results={results} settings={settings} cycles={cycles} month={monthFilter} onMonthChange={setMonthFilter} />
+            <OverviewView results={results} divisionData={divisionData} settings={settings} cycles={cycles} month={monthFilter} onMonthChange={setMonthFilter} />
           )}
           {view === 'votes' && (
             <VotesView month={monthFilter} onMonthChange={setMonthFilter} onDeleteVote={deleteVote} refreshKey={refreshKey} />
@@ -1590,12 +1939,14 @@ export default function AdminPage() {
           {view === 'staff' && (
             <StaffView
               staffData={staffData}
+              divisions={divisions}
               onDeleteVotesFor={deleteVotesFor}
               onRevealPhone={copyPhone}
               onAddNominee={addNominee}
               onEditNominee={editNominee}
               onRemoveNominee={removeNominee}
               onSetNominated={setNominated}
+              onSetDivision={setDivision}
             />
           )}
           {view === 'settings' && (
@@ -1605,6 +1956,8 @@ export default function AdminPage() {
               setMonthDraft={setMonthDraft}
               monthSaved={monthSaved}
               onToggleVoting={toggleVoting}
+              onToggleDivisionVoting={toggleDivisionVoting}
+              onCloseDivisionsAndNominate={closeDivisionsAndNominate}
               onSaveMonth={saveMonth}
               toggling={toggling}
               cycles={cycles}

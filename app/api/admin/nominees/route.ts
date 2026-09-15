@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server'
-import { addNominee, removeNominee, setNominated, updateNominee } from '@/lib/nominees'
+import { addNominee, removeNominee, setNomineeDivision, setNominated, updateNominee } from '@/lib/nominees'
 import { requireAdmin } from '@/lib/admin-auth'
 
 export const dynamic = 'force-dynamic'
@@ -12,9 +12,9 @@ export async function POST(request: NextRequest) {
   try {
     await requireAdmin()
 
-    let body: { name?: unknown; phone?: unknown }
+    let body: { name?: unknown; phone?: unknown; division?: unknown }
     try {
-      body = (await request.json()) as { name?: unknown; phone?: unknown }
+      body = (await request.json()) as { name?: unknown; phone?: unknown; division?: unknown }
     } catch {
       return NextResponse.json({ error: 'Invalid request body.' }, { status: 400 })
     }
@@ -23,7 +23,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Name and phone are required.' }, { status: 400 })
     }
 
-    const result = await addNominee(body.name, body.phone)
+    const division = typeof body.division === 'string' ? body.division : undefined
+    const result = await addNominee(body.name, body.phone, division)
     if (!result.ok) {
       return NextResponse.json({ error: result.error }, { status: result.status })
     }
@@ -45,9 +46,9 @@ export async function PUT(request: NextRequest) {
   try {
     await requireAdmin()
 
-    let body: { sn?: unknown; name?: unknown; phone?: unknown }
+    let body: { sn?: unknown; name?: unknown; phone?: unknown; division?: unknown }
     try {
-      body = (await request.json()) as { sn?: unknown; name?: unknown; phone?: unknown }
+      body = (await request.json()) as { sn?: unknown; name?: unknown; phone?: unknown; division?: unknown }
     } catch {
       return NextResponse.json({ error: 'Invalid request body.' }, { status: 400 })
     }
@@ -57,7 +58,8 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: 'S/N, name and phone are required.' }, { status: 400 })
     }
 
-    const result = await updateNominee(sn, body.name, body.phone)
+    const division = typeof body.division === 'string' ? body.division : undefined
+    const result = await updateNominee(sn, body.name, body.phone, division)
     if (!result.ok) {
       return NextResponse.json({ error: result.error }, { status: result.status })
     }
@@ -73,14 +75,14 @@ export async function PUT(request: NextRequest) {
 
 /**
  * PATCH /api/admin/nominees — put a staff member on (or remove them from)
- * the public ballot.
- * Body: { sn, nominated }
+ * the public ballot, or assign their division.
+ * Body: { sn, nominated } or { sn, division }
  */
 export async function PATCH(request: NextRequest) {
   try {
     await requireAdmin()
 
-    let body: { sn?: unknown; nominated?: unknown }
+    let body: { sn?: unknown; nominated?: unknown; division?: unknown }
     try {
       body = (await request.json()) as { sn?: unknown; nominated?: unknown }
     } catch {
@@ -88,11 +90,17 @@ export async function PATCH(request: NextRequest) {
     }
 
     const sn = typeof body.sn === 'number' ? body.sn : Number.parseInt(String(body.sn ?? ''), 10)
-    if (!Number.isFinite(sn) || typeof body.nominated !== 'boolean') {
-      return NextResponse.json({ error: 'S/N and nominated (boolean) are required.' }, { status: 400 })
+    if (!Number.isFinite(sn)) {
+      return NextResponse.json({ error: 'A valid staff S/N is required.' }, { status: 400 })
     }
 
-    const result = await setNominated(sn, body.nominated)
+    // Two patch modes: nomination toggle { nominated: boolean } or
+    // division assignment { division: string }.
+    const result = typeof body.nominated === 'boolean'
+      ? await setNominated(sn, body.nominated)
+      : typeof body.division === 'string'
+        ? await setNomineeDivision(sn, body.division)
+        : { ok: false as const, error: 'Provide nominated (boolean) or division (string).', status: 400 as const }
     if (!result.ok) {
       return NextResponse.json({ error: result.error }, { status: result.status })
     }

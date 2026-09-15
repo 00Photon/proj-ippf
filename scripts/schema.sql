@@ -21,6 +21,29 @@ CREATE INDEX IF NOT EXISTS votes_cycle_month_idx ON votes (cycle_month);
 -- One vote per phone per cycle (new cycles reset eligibility)
 CREATE UNIQUE INDEX IF NOT EXISTS votes_phone_cycle_unique_idx ON votes (voter_phone, cycle_month);
 
+-- Division votes: each division votes for their own staff; the top
+-- vote-getter per division becomes the nominee for the general ballot.
+-- (Also created at runtime by lib/divisions.ts if missing.)
+CREATE TABLE IF NOT EXISTS division_votes (
+  id SERIAL PRIMARY KEY,
+  voter_phone TEXT NOT NULL,
+  cycle_month TEXT NOT NULL DEFAULT 'September 2026',
+  division TEXT NOT NULL,
+  candidate_sn INT NOT NULL,
+  candidate_name TEXT NOT NULL,
+  remarks TEXT,
+  ip_address TEXT,
+  user_agent TEXT,
+  location JSONB,
+  is_proxy BOOLEAN,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS division_votes_cycle_div_idx ON division_votes (cycle_month, division);
+
+-- One division vote per phone per cycle
+CREATE UNIQUE INDEX IF NOT EXISTS division_votes_phone_cycle_unique_idx ON division_votes (voter_phone, cycle_month);
+
 -- Aggregate view for admin/results use: totals per candidate
 CREATE OR REPLACE VIEW vote_results AS
 SELECT

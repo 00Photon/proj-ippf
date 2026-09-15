@@ -1,14 +1,15 @@
 import { NextResponse } from 'next/server'
-import { getNominatedNominees } from '@/lib/nominees'
+import { getNominees } from '@/lib/nominees'
 
 export const dynamic = 'force-dynamic'
 
 export async function GET() {
-  // Return only the nominated staff as the votable ballot.
-  // Phones are deliberately excluded — voters only need names.
-  const list = await getNominatedNominees()
+  // Full roll, names only — phones are deliberately excluded.
+  // - division: needed by the /division page to scope each division's ballot
+  // - nominated: the general ballot pool (division winners + admin overrides)
+  const list = await getNominees()
   return NextResponse.json({
-    staff: list.map(({ sn, name }) => ({ sn, name })),
+    staff: list.map(({ sn, name, division, nominated }) => ({ sn, name, division, nominated })),
     total: list.length,
   })
 }

@@ -138,6 +138,7 @@ export async function changePassword(
 
 export interface AppSettings {
   votingOpen: boolean
+  divisionOpen: boolean
   votingMonth: string
 }
 
@@ -146,6 +147,7 @@ export async function getSettings(): Promise<AppSettings> {
   const map = Object.fromEntries(rows.map((r) => [r.key, r.value]))
   return {
     votingOpen: (map.voting_open ?? 'true') === 'true',
+    divisionOpen: (map.division_open ?? 'false') === 'true',
     votingMonth: map.voting_month ?? 'September 2026',
   }
 }
@@ -195,6 +197,9 @@ export async function getCycles(): Promise<CycleInfo[]> {
 export async function updateSettings(next: Partial<AppSettings>): Promise<AppSettings> {
   if (typeof next.votingOpen === 'boolean') {
     await db()`INSERT INTO settings (key, value) VALUES ('voting_open', ${String(next.votingOpen)}) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`
+  }
+  if (typeof next.divisionOpen === 'boolean') {
+    await db()`INSERT INTO settings (key, value) VALUES ('division_open', ${String(next.divisionOpen)}) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`
   }
   if (typeof next.votingMonth === 'string' && next.votingMonth.trim()) {
     const month = next.votingMonth.trim().slice(0, 40)

@@ -5,6 +5,7 @@ export interface Nominee {
   sn: number
   name: string
   phone: string
+  division: string | null
   nominated: boolean
 }
 
@@ -30,8 +31,9 @@ async function ensureNomineesTable(): Promise<void> {
           created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )
       `
-      // Migration for existing installs: add the nomination flag.
+      // Migration for existing installs: add the nomination flag + division.
       await sql`ALTER TABLE nominees ADD COLUMN IF NOT EXISTS nominated BOOLEAN NOT NULL DEFAULT false`
+      await sql`ALTER TABLE nominees ADD COLUMN IF NOT EXISTS division TEXT`
 
       const countRows = (await sql`SELECT COUNT(*)::int AS n FROM nominees`) as unknown as { n: number }[]
       if ((countRows[0]?.n ?? 0) === 0) {
@@ -64,10 +66,10 @@ async function ensureNomineesTable(): Promise<void> {
 export async function getNominees(): Promise<Nominee[]> {
   try {
     await ensureNomineesTable()
-    return (await sql`SELECT sn, name, phone, nominated FROM nominees ORDER BY sn ASC`) as unknown as Nominee[]
+    return (await sql`SELECT sn, name, phone, division, nominated FROM nominees ORDER BY sn ASC`) as unknown as Nominee[]
   } catch (error) {
     console.error('Nominees load failed, using static roll:', error instanceof Error ? error.message : error)
-    return staffList.map((m) => ({ ...m, nominated: false }))
+    return staffList.map((m) => ({ ...m, division: null, nominated: false }))
   }
 }
 
@@ -78,6 +80,21 @@ export async function getNominees(): Promise<Nominee[]> {
 export async function getNominatedNominees(): Promise<Nominee[]> {
   const list = await getNominees()
   return list.filter((member) => member.nominated)
+}
+
+/** Distinct divisions currently assigned on the roll, alphabetical. */
+export async function getDivisions(): Promise<string[]> {
+  try {
+    await ensureNomineesTable()
+    const rows = (await sql`
+      SELECT DISTINCT division AS name FROM nominees WHERE division IS NOT NULL AND division <> ''
+      ORDER BY name ASC
+    `) as unknown as { name: string }[]
+    return rows.map((r) => r.name)
+  } catch (error) {
+    console.error('Divisions load failed:', error instanceof Error ? error.message : error)
+    return []
+  }
 }
 
 /** Look up a nominee by voter-supplied phone number (any common format). */
@@ -92,7 +109,7 @@ export type AddNomineeResult =
   | { ok: true; nominee: Nominee }
   | { ok: false; error: string; status: 400 | 409 | 500 }
 
-export async function addNominee(nameRaw: string, phoneRaw: string): Promise<AddNomineeResult> {
+export async function addNominee(nameRaw: string, phoneRaw: string, divisionRaw?: string): Promise<AddNomineeResult> {
   const name = nameRaw.trim().replace(/\s+/g, ' ')
   if (name.length < 2 || name.length > 80) {
     return { ok: false, error: 'Name must be between 2 and 80 characters.', status: 400 }
@@ -101,12 +118,13 @@ export async function addNominee(nameRaw: string, phoneRaw: string): Promise<Add
   if (!phone) {
     return { ok: false, error: 'Enter a valid 11-digit Nigerian phone number, e.g. 08031234567.', status: 400 }
   }
+  const division = (divisionRaw ?? '').trim().slice(0, 60) || null
 
   try {
     await ensureNomineesTable()
     const rows = (await sql`
-      INSERT INTO nominees (name, phone) VALUES (${name}, ${phone})
-      RETURNING sn, name, phone, nominated
+      INSERT INTO nominees (name, phone, division) VALUES (${name}, ${phone}, ${division})
+      RETURNING sn, name, phone, division, nominated
     `) as unknown as Nominee[]
     return { ok: true, nominee: rows[0] }
   } catch (error) {
@@ -127,7 +145,7 @@ export type UpdateNomineeResult =
  * Edits a nominee's name and/or phone. Votes already cast are tied to the
  * phone number used at vote time, so they are intentionally left untouched.
  */
-export async function updateNominee(sn: number, nameRaw: string, phoneRaw: string): Promise<UpdateNomineeResult> {
+export async function updateNominee(sn: number, nameRaw: string, phoneRaw: string, divisionRaw?: string): Promise<UpdateNomineeResult> {
   if (!Number.isFinite(sn)) {
     return { ok: false, error: 'Invalid nominee S/N.', status: 400 }
   }
@@ -139,13 +157,14 @@ export async function updateNominee(sn: number, nameRaw: string, phoneRaw: strin
   if (!phone) {
     return { ok: false, error: 'Enter a valid 11-digit Nigerian phone number, e.g. 08031234567.', status: 400 }
   }
+  const division = (divisionRaw ?? '').trim().slice(0, 60) || null
 
   try {
     await ensureNomineesTable()
     const rows = (await sql`
-      UPDATE nominees SET name = ${name}, phone = ${phone}
+      UPDATE nominees SET name = ${name}, phone = ${phone}, division = ${division}
       WHERE sn = ${sn}
-      RETURNING sn, name, phone, nominated
+      RETURNING sn, name, phone, division, nominated
     `) as unknown as Nominee[]
     if (rows.length === 0) {
       return { ok: false, error: 'Nominee not found.', status: 404 }
@@ -166,6 +185,32 @@ export type SetNominatedResult =
   | { ok: false; error: string; status: 400 | 404 | 500 }
 
 /**
+ * Assigns a staff member to a division (empty string clears it). The division
+ * decides who they can vote for in the division vote and who can vote for them.
+ */
+export async function setNomineeDivision(sn: number, divisionRaw: string): Promise<SetNominatedResult> {
+  if (!Number.isFinite(sn)) {
+    return { ok: false, error: 'Invalid staff S/N.', status: 400 }
+  }
+  const division = (divisionRaw ?? '').trim().slice(0, 60) || null
+  try {
+    await ensureNomineesTable()
+    const rows = (await sql`
+      UPDATE nominees SET division = ${division}
+      WHERE sn = ${sn}
+      RETURNING sn, name, phone, division, nominated
+    `) as unknown as Nominee[]
+    if (rows.length === 0) {
+      return { ok: false, error: 'Staff member not found.', status: 404 }
+    }
+    return { ok: true, nominee: rows[0] }
+  } catch (error) {
+    console.error('Set division failed:', error instanceof Error ? error.message : error)
+    return { ok: false, error: 'Could not update the division. Please try again.', status: 500 }
+  }
+}
+
+/**
  * Flags (or unflags) a staff member for the public ballot. Votes already
  * received are kept — withdrawing a nomination only hides the staff member
  * from the ballot; their past tallies stay on record.
@@ -179,7 +224,7 @@ export async function setNominated(sn: number, nominated: boolean): Promise<SetN
     const rows = (await sql`
       UPDATE nominees SET nominated = ${nominated}
       WHERE sn = ${sn}
-      RETURNING sn, name, phone, nominated
+      RETURNING sn, name, phone, division, nominated
     `) as unknown as Nominee[]
     if (rows.length === 0) {
       return { ok: false, error: 'Staff member not found.', status: 404 }

@@ -19,9 +19,10 @@ export async function GET() {
 export async function PUT(request: NextRequest) {
   try {
     await requireAdmin()
-    const body = (await request.json()) as { votingOpen?: unknown; votingMonth?: unknown }
+    const body = (await request.json()) as { votingOpen?: unknown; divisionOpen?: unknown; votingMonth?: unknown }
     const settings = await updateSettings({
       votingOpen: typeof body.votingOpen === 'boolean' ? body.votingOpen : undefined,
+      divisionOpen: typeof body.divisionOpen === 'boolean' ? body.divisionOpen : undefined,
       votingMonth: typeof body.votingMonth === 'string' ? body.votingMonth : undefined,
     })
     return NextResponse.json(settings)

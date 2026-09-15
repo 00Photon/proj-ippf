@@ -5,6 +5,7 @@ import confetti from 'canvas-confetti'
 import {
   ArrowRight,
   BadgeCheck,
+  Building2,
   Check,
   Loader2,
   LockKeyhole,
@@ -19,12 +20,15 @@ import {
 interface StaffEntry {
   sn: number
   name: string
+  division: string | null
+  nominated: boolean
 }
 
 interface VerifyResponse {
   valid: boolean
   hasVoted?: boolean
-  voter?: { sn: number; name: string }
+  hasVotedDivision?: boolean
+  voter?: { sn: number; name: string; division: string | null }
 }
 
 // Initials from a name like "EKWEM Virginus E. N." -> "EV"
@@ -46,13 +50,18 @@ export default function Page() {
   const [isVoteOpen, setIsVoteOpen] = useState(false)
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   const [votingOpen, setVotingOpen] = useState<boolean | null>(null)
+  const [divisionOpen, setDivisionOpen] = useState<boolean | null>(null)
   const [votingMonth, setVotingMonth] = useState('September 2026')
+
+  // Which ballot the open modal is for
+  const [voteMode, setVoteMode] = useState<'general' | 'division'>('general')
 
   const [phone, setPhone] = useState('')
   const [verifying, setVerifying] = useState(false)
-  const [voter, setVoter] = useState<{ sn: number; name: string } | null>(null)
+  const [voter, setVoter] = useState<{ sn: number; name: string; division: string | null } | null>(null)
   const [verifyError, setVerifyError] = useState('')
   const [hasVoted, setHasVoted] = useState(false)
+  const [hasVotedDivision, setHasVotedDivision] = useState(false)
 
   const [staff, setStaff] = useState<StaffEntry[]>([])
   const [loadingStaff, setLoadingStaff] = useState(true)
@@ -97,7 +106,7 @@ export default function Page() {
     return () => clearTimeout(sideCannon)
   }, [submitted])
 
-  // Load the full nominal roll as the nominee pool
+  // Load the full nominal roll (division scoping + ballot flags included)
   useEffect(() => {
     let cancelled = false
     fetch('/api/staff')
@@ -114,14 +123,15 @@ export default function Page() {
     }
   }, [])
 
-  // Load public voting state (open/closed + active month)
+  // Load public voting state (both phases + active month)
   useEffect(() => {
     let cancelled = false
     fetch('/api/settings')
       .then((res) => res.json())
-      .then((data: { votingOpen: boolean; votingMonth: string }) => {
+      .then((data: { votingOpen: boolean; divisionOpen: boolean; votingMonth: string }) => {
         if (cancelled) return
         setVotingOpen(data.votingOpen)
+        setDivisionOpen(data.divisionOpen)
         if (data.votingMonth) setVotingMonth(data.votingMonth)
       })
       .catch(() => {})
@@ -133,6 +143,23 @@ export default function Page() {
   const filteredStaff = useMemo(
     () => staff.filter((member) => member.name.toLowerCase().includes(search.toLowerCase())),
     [staff, search],
+  )
+
+  // Division ballot: only colleagues in the verified voter's division
+  const divisionColleagues = useMemo(
+    () => staff.filter((member) => member.division && member.division === voter?.division),
+    [staff, voter],
+  )
+  const filteredDivisionColleagues = useMemo(
+    () => divisionColleagues.filter((member) => member.name.toLowerCase().includes(search.toLowerCase())),
+    [divisionColleagues, search],
+  )
+
+  // General ballot pool: nominated staff only
+  const ballotStaff = useMemo(() => staff.filter((member) => member.nominated), [staff])
+  const filteredBallotStaff = useMemo(
+    () => ballotStaff.filter((member) => member.name.toLowerCase().includes(search.toLowerCase())),
+    [ballotStaff, search],
   )
 
   const digits = phone.replace(/[^0-9]/g, '')
@@ -149,12 +176,13 @@ export default function Page() {
         setVerifyError('This number is not on the approved nominal roll.')
         return
       }
-      if (data.hasVoted) {
-        setHasVoted(true)
-        setVoter(data.voter ?? null)
-        return
-      }
       setVoter(data.voter ?? null)
+      setHasVoted(Boolean(data.hasVoted))
+      setHasVotedDivision(Boolean(data.hasVotedDivision))
+      // Route division voters straight to their division ballot
+      if (voteMode === 'division' && data.hasVotedDivision) {
+        // Already voted in division — shown by the hasVotedDivision screen below
+      }
     } catch {
       setVerifyError('Verification failed. Check your connection and try again.')
     } finally {
@@ -167,7 +195,8 @@ export default function Page() {
     setSubmitting(true)
     setSubmitError('')
     try {
-      const res = await fetch('/api/vote', {
+      const endpoint = voteMode === 'division' ? '/api/division-vote' : '/api/vote'
+      const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ phone, candidateSn: selectedSn, remarks }),
@@ -178,7 +207,8 @@ export default function Page() {
         return
       }
       setSubmitted(true)
-      setHasVoted(true)
+      if (voteMode === 'division') setHasVotedDivision(true)
+      else setHasVoted(true)
     } catch {
       setSubmitError('Network error. Please try again.')
     } finally {
@@ -196,10 +226,13 @@ export default function Page() {
     setVerifyError('')
     setPhone('')
     setHasVoted(false)
+    setHasVotedDivision(false)
+    setVoteMode('general')
+    setSearch('')
   }
 
   const isOpen = votingOpen !== false
-  const registerPreview = staff.slice(0, REGISTER_PREVIEW)
+  const ballotPreview = staff.filter((m) => m.nominated).slice(0, REGISTER_PREVIEW)
 
   return (
     <main className="min-h-screen bg-[#fbfcfb] text-[#15291f]">
@@ -255,9 +288,17 @@ export default function Page() {
             </p>
 
             <div className="mt-9 flex flex-col gap-3 sm:flex-row sm:items-center">
+              {divisionOpen === true ? (
+                <button
+                  onClick={() => { setVoteMode('division'); setIsVoteOpen(true) }}
+                  className="inline-flex items-center justify-center gap-2.5 bg-[#2f5470] px-7 py-4 text-sm font-semibold tracking-wide text-white transition hover:bg-[#26465f]"
+                >
+                  Division vote <Building2 className="size-4" />
+                </button>
+              ) : null}
               {isOpen ? (
                 <button
-                  onClick={() => setIsVoteOpen(true)}
+                  onClick={() => { setVoteMode('general'); setIsVoteOpen(true) }}
                   className={`inline-flex items-center justify-center gap-2.5 bg-[#087443] px-7 py-4 text-sm font-semibold tracking-wide text-white transition hover:bg-[#06603a] ${votingOpen ? 'animate-[glow-pulse_2.6s_ease-in-out_infinite]' : ''}`}
                 >
                   Cast your vote <ArrowRight className="size-4" />
@@ -287,12 +328,12 @@ export default function Page() {
               </div>
               <div className="py-4">
                 <dt className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#84948a]">Ballot</dt>
-                <dd className="mt-2 text-sm font-semibold text-[#15291f] tabular-nums">{loadingStaff ? '—' : `${staff.length} nominees`}</dd>
+                <dd className="mt-2 text-sm font-semibold text-[#15291f] tabular-nums">{loadingStaff ? '—' : `${staff.filter((m) => m.nominated).length} nominees`}</dd>
               </div>
             </dl>
           </div>
 
-          {/* Nominal register preview */}
+          {/* Ballot preview — nominated staff only */}
           <div className="lg:pt-2">
             <div className="border border-[#e3ebe5] bg-[#fbfcfb]">
               <div className="flex items-baseline justify-between border-b border-[#e3ebe5] px-5 py-4">
@@ -300,7 +341,7 @@ export default function Page() {
                 <span className="font-mono text-[11px] text-[#84948a]">2026</span>
               </div>
               <ul className="divide-y divide-[#edf2ee]">
-                {registerPreview.map((member) => (
+                {ballotPreview.map((member) => (
                   <li key={member.sn} className="flex items-center gap-4 px-5 py-3">
                     <span className="w-7 shrink-0 font-mono text-xs text-[#9aab9f] tabular-nums">{String(member.sn).padStart(2, '0')}</span>
                     <span className="truncate text-sm font-medium text-[#2b4033]">{member.name}</span>
@@ -312,12 +353,12 @@ export default function Page() {
                 onClick={() => setIsVoteOpen(true)}
                 className="flex w-full items-center justify-between border-t border-[#e3ebe5] px-5 py-4 text-left text-sm font-semibold text-[#087443] transition hover:bg-[#f2f8f4]"
               >
-                View the full ballot — {loadingStaff ? '…' : `${staff.length} names`}
+                View the full ballot — {loadingStaff ? '…' : `${ballotStaff.length} names`}
                 <ArrowRight className="size-4" />
               </button>
             </div>
             <p className="mt-3 text-xs leading-5 text-[#84948a]">
-              Only staff nominated for this cycle appear on the ballot. Every staff member can vote.
+              Nominees are chosen by division vote and confirmed by the admin. Every staff member can vote.
             </p>
           </div>
         </div>
@@ -392,8 +433,12 @@ export default function Page() {
           <div className="max-h-[92vh] w-full max-w-lg overflow-y-auto bg-white shadow-2xl sm:max-w-xl">
             <div className="flex items-start justify-between border-b border-[#e3ebe5] px-6 py-5 sm:px-8">
               <div>
-                <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[#087443]">{votingMonth} Staff of the Month </p>
-                <h2 id="vote-title" className="mt-1.5 font-serif text-2xl text-[#15291f]">Cast your vote</h2>
+                <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[#087443]">
+                  {votingMonth} Staff of the Month{voteMode === 'division' ? ' · Division vote' : ''}
+                </p>
+                <h2 id="vote-title" className="mt-1.5 font-serif text-2xl text-[#15291f]">
+                  {voteMode === 'division' ? 'Division vote' : 'Cast your vote'}
+                </h2>
               </div>
               <button className="p-1.5 text-[#6d7f74] transition hover:bg-[#f2f6f3]" onClick={resetFlow} aria-label="Close vote dialog">
                 <X className="size-5" />
@@ -405,12 +450,29 @@ export default function Page() {
                 <div className="mx-auto flex size-14 items-center justify-center border border-[#bfe3cd] bg-[#eef8f1] text-[#087443]">
                   <Check className="size-7" />
                 </div>
-                <h3 className="mt-6 font-serif text-2xl text-[#15291f]">Vote recorded</h3>
+                <h3 className="mt-6 font-serif text-2xl text-[#15291f]">
+                  {voteMode === 'division' ? 'Division vote recorded' : 'Vote recorded'}
+                </h3>
                 <p className="mx-auto mt-2.5 max-w-sm text-sm leading-6 text-[#5c6f63]">
-                  Thank you. This phone number has used its one vote for the {votingMonth} cycle.
+                  {voteMode === 'division'
+                    ? `Thank you. This phone number has used its division vote for the ${votingMonth} cycle.`
+                    : `Thank you. This phone number has used its one vote for the ${votingMonth} cycle.`}
                 </p>
                 <button onClick={resetFlow} className="mt-8 bg-[#087443] px-8 py-3.5 text-sm font-semibold text-white transition hover:bg-[#06603a]">
                   Done
+                </button>
+              </div>
+            ) : voteMode === 'division' && voter && hasVotedDivision ? (
+              <div className="px-6 py-14 text-center sm:px-8">
+                <div className="mx-auto flex size-14 items-center justify-center border border-[#eccfcf] bg-[#fbf1f1] text-[#b04a4a]">
+                  <XCircle className="size-7" />
+                </div>
+                <h3 className="mt-6 font-serif text-2xl text-[#15291f]">Division vote already cast</h3>
+                <p className="mx-auto mt-2.5 max-w-sm text-sm leading-6 text-[#5c6f63]">
+                  {voter.name}, this number has already voted in the {votingMonth} division vote. One staff, one division vote per cycle.
+                </p>
+                <button onClick={resetFlow} className="mt-8 bg-[#087443] px-8 py-3.5 text-sm font-semibold text-white transition hover:bg-[#06603a]">
+                  Close
                 </button>
               </div>
             ) : hasVoted && voter ? (
@@ -436,9 +498,20 @@ export default function Page() {
                   <BadgeCheck className="size-5 shrink-0 text-[#0b8a51]" />
                 </div>
 
+                {voteMode === 'division' && (
+                  <div className="border border-[#d6e2ee] bg-[#f2f7fb] px-4 py-3">
+                    <p className="text-sm font-semibold text-[#15291f]">{voter.division ?? 'No division set'}</p>
+                    <p className="mt-0.5 text-xs text-[#5c6f63]">
+                      {voter.division
+                        ? 'You are voting for colleagues within your own division.'
+                        : 'Your division is not set on the roll — contact the admin to be assigned.'}
+                    </p>
+                  </div>
+                )}
+
                 <div>
                   <label htmlFor="candidate-search" className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#47584d]">
-                    Your nominee
+                    {voteMode === 'division' ? 'Your division nominee' : 'Your nominee'}
                   </label>
                   <div className="relative mt-2.5">
                     <Search className="absolute left-3.5 top-3 size-4 text-[#9aab9f]" />
@@ -446,7 +519,7 @@ export default function Page() {
                       id="candidate-search"
                       value={search}
                       onChange={(event) => setSearch(event.target.value)}
-                      placeholder="Search the register"
+                      placeholder={voteMode === 'division' ? 'Search your division' : 'Search the ballot'}
                       className="w-full border border-[#dbe5de] bg-[#fbfcfb] py-2.5 pl-10 pr-4 text-sm outline-none placeholder:text-[#9aab9f] focus:border-[#087443]"
                     />
                   </div>
@@ -455,8 +528,7 @@ export default function Page() {
                       <div className="flex items-center justify-center gap-2 py-8 text-sm text-[#84948a]">
                         <Loader2 className="size-4 animate-spin" /> Loading register…
                       </div>
-                    ) : (
-                      filteredStaff.map((member) => (
+                    ) : (voteMode === 'division' ? filteredDivisionColleagues : filteredBallotStaff).map((member) => (
                         <button
                           key={member.sn}
                           onClick={() => setSelectedSn(member.sn)}
@@ -467,10 +539,16 @@ export default function Page() {
                           {selectedSn === member.sn && <Check className="size-4 shrink-0 text-[#087443]" />}
                         </button>
                       ))
-                    )}
-                    {!loadingStaff && filteredStaff.length === 0 && (
+                    }
+                    {!loadingStaff && (voteMode === 'division' ? filteredDivisionColleagues : filteredBallotStaff).length === 0 && (
                       <p className="px-4 py-6 text-center text-sm text-[#84948a]">
-                        {search ? `No name matches “${search}”.` : 'No staff have been nominated yet.'}
+                        {voteMode === 'division'
+                          ? search
+                            ? `No name matches “${search}”.`
+                            : 'No colleagues found in your division.'
+                          : search
+                            ? `No name matches “${search}”.`
+                            : 'No staff have been nominated yet.'}
                       </p>
                     )}
                   </div>
