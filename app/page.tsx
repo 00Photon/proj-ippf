@@ -145,7 +145,7 @@ export default function Page() {
     [staff, search],
   )
 
-  // Division ballot: only colleagues in the verified voter's division
+  // Division ballot: everyone in the verified voter's division, including themselves
   const divisionColleagues = useMemo(
     () => staff.filter((member) => member.division && member.division === voter?.division),
     [staff, voter],
@@ -344,10 +344,15 @@ export default function Page() {
                 {ballotPreview.map((member) => (
                   <li key={member.sn} className="flex items-center gap-4 px-5 py-3">
                     <span className="w-7 shrink-0 font-mono text-xs text-[#9aab9f] tabular-nums">{String(member.sn).padStart(2, '0')}</span>
-                    <span className="truncate text-sm font-medium text-[#2b4033]">{member.name}</span>
+                    <span className="min-w-0 flex-1 truncate text-sm font-medium text-[#2b4033]">{member.name}</span>
+                    {member.division && (
+                      <span className="shrink-0 rounded-full bg-[#e8eef5] px-2.5 py-1 text-[10px] font-bold text-[#2f5470]">{member.division}</span>
+                    )}
                   </li>
                 ))}
-                {loadingStaff && <li className="px-5 py-6 text-sm text-[#84948a]">Loading register…</li>}
+                {!loadingStaff && ballotPreview.length === 0 && (
+                  <li className="px-5 py-6 text-sm text-[#84948a]">No nominees yet — division voting decides the ballot.</li>
+                )}
               </ul>
               <button
                 onClick={() => setIsVoteOpen(true)}
@@ -535,7 +540,13 @@ export default function Page() {
                           className={`flex w-full items-center gap-3 px-4 py-2.5 text-left transition ${selectedSn === member.sn ? 'bg-[#eef8f1]' : 'bg-white hover:bg-[#f7faf8]'}`}
                         >
                           <span className="w-7 shrink-0 font-mono text-xs text-[#9aab9f] tabular-nums">{String(member.sn).padStart(2, '0')}</span>
-                          <span className="min-w-0 flex-1 truncate text-sm font-medium text-[#2b4033]">{member.name}</span>
+                          <span className="min-w-0 flex-1 truncate text-sm font-medium text-[#2b4033]">
+                            {member.name}
+                            {voteMode === 'division' && member.sn === voter?.sn && <span className="ml-1.5 font-bold text-[#087443]">(You)</span>}
+                          </span>
+                          {voteMode === 'general' && member.division && (
+                            <span className="shrink-0 rounded-full bg-[#e8eef5] px-2 py-0.5 text-[10px] font-bold text-[#2f5470]">{member.division}</span>
+                          )}
                           {selectedSn === member.sn && <Check className="size-4 shrink-0 text-[#087443]" />}
                         </button>
                       ))

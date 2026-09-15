@@ -2,6 +2,7 @@ import { sql } from '@/lib/db'
 import { normalizePhone } from '@/lib/staff'
 import { findNomineeByPhone, getNominees } from '@/lib/nominees'
 import { getSettings, type AppSettings } from '@/lib/admin-auth'
+import { DIVISIONS } from '@/lib/division-list'
 
 /**
  * Division votes let each division choose their own nominee: every staff
@@ -147,7 +148,11 @@ export async function getDivisionStandings(month: string | null): Promise<Divisi
         GROUP BY division, candidate_sn, candidate_name
       `) as unknown as { division: string; candidate_sn: number; candidate_name: string; vote_count: number }[])
 
+  // Every official division appears, even with no staff/votes yet
   const byDivision = new Map<string, DivisionStanding>()
+  for (const division of DIVISIONS) {
+    byDivision.set(division, { division, totalVotes: 0, voters: 0, leader: null, results: [] })
+  }
   for (const row of tallyRows) {
     let entry = byDivision.get(row.division)
     if (!entry) {
@@ -156,14 +161,6 @@ export async function getDivisionStandings(month: string | null): Promise<Divisi
     }
     entry.totalVotes += row.vote_count
     entry.results.push({ sn: row.candidate_sn, name: row.candidate_name, voteCount: row.vote_count })
-  }
-
-  // Staff roster per division, so empty divisions still appear with 0 votes
-  for (const member of nominees) {
-    if (!member.division) continue
-    if (!byDivision.has(member.division)) {
-      byDivision.set(member.division, { division: member.division, totalVotes: 0, voters: 0, leader: null, results: [] })
-    }
   }
 
   for (const entry of byDivision.values()) {

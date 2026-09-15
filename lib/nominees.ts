@@ -1,5 +1,6 @@
 import { sql } from '@/lib/db'
 import { normalizePhone, staffList } from '@/lib/staff'
+import { canonicalDivision } from '@/lib/division-list'
 
 export interface Nominee {
   sn: number
@@ -82,7 +83,10 @@ export async function getNominatedNominees(): Promise<Nominee[]> {
   return list.filter((member) => member.nominated)
 }
 
-/** Distinct divisions currently assigned on the roll, alphabetical. */
+/**
+ * Distinct divisions currently assigned on the roll, alphabetical. Legacy or
+ * free-text values stay visible here so admins can spot and fix them.
+ */
 export async function getDivisions(): Promise<string[]> {
   try {
     await ensureNomineesTable()
@@ -118,7 +122,10 @@ export async function addNominee(nameRaw: string, phoneRaw: string, divisionRaw?
   if (!phone) {
     return { ok: false, error: 'Enter a valid 11-digit Nigerian phone number, e.g. 08031234567.', status: 400 }
   }
-  const division = (divisionRaw ?? '').trim().slice(0, 60) || null
+  const division = divisionRaw === undefined ? undefined : canonicalDivision(divisionRaw ?? '')
+  if (divisionRaw !== undefined && division === null) {
+    return { ok: false, error: 'Division must be one of the 7 official IPPIS divisions.', status: 400 }
+  }
 
   try {
     await ensureNomineesTable()
@@ -157,7 +164,10 @@ export async function updateNominee(sn: number, nameRaw: string, phoneRaw: strin
   if (!phone) {
     return { ok: false, error: 'Enter a valid 11-digit Nigerian phone number, e.g. 08031234567.', status: 400 }
   }
-  const division = (divisionRaw ?? '').trim().slice(0, 60) || null
+  const division = divisionRaw === undefined ? undefined : canonicalDivision(divisionRaw ?? '')
+  if (divisionRaw !== undefined && division === null) {
+    return { ok: false, error: 'Division must be one of the 7 official IPPIS divisions.', status: 400 }
+  }
 
   try {
     await ensureNomineesTable()
@@ -192,7 +202,10 @@ export async function setNomineeDivision(sn: number, divisionRaw: string): Promi
   if (!Number.isFinite(sn)) {
     return { ok: false, error: 'Invalid staff S/N.', status: 400 }
   }
-  const division = (divisionRaw ?? '').trim().slice(0, 60) || null
+  const division = canonicalDivision(divisionRaw ?? '')
+  if (!division) {
+    return { ok: false, error: 'Division must be one of the 7 official IPPIS divisions.', status: 400 }
+  }
   try {
     await ensureNomineesTable()
     const rows = (await sql`
