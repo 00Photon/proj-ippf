@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { sql } from '@/lib/db'
-import { getNominees } from '@/lib/nominees'
+import { getNominees, getNominatedNominees } from '@/lib/nominees'
 import { getSettings, requireAdmin } from '@/lib/admin-auth'
 
 export const dynamic = 'force-dynamic'
@@ -57,9 +57,12 @@ export async function GET(request: NextRequest) {
           GROUP BY candidate_sn, candidate_name
         `) as unknown as ResultRow[])
 
+    // Standings list only staff currently on the ballot; turnout stays
+    // relative to the full roll since every staff member can vote.
+    const ballot = await getNominatedNominees()
     const nominees = await getNominees()
 
-    const results = nominees
+    const results = ballot
       .map(({ sn, name }) => {
         const row = tallyRows.find((r) => r.candidate_sn === sn)
         return { sn, name, voteCount: row?.vote_count ?? 0 }

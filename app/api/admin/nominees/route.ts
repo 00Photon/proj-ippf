@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server'
-import { addNominee, removeNominee, updateNominee } from '@/lib/nominees'
+import { addNominee, removeNominee, setNominated, updateNominee } from '@/lib/nominees'
 import { requireAdmin } from '@/lib/admin-auth'
 
 export const dynamic = 'force-dynamic'
@@ -68,6 +68,41 @@ export async function PUT(request: NextRequest) {
     }
     console.error('Update nominee route failed:', error instanceof Error ? error.message : error)
     return NextResponse.json({ error: 'Failed to update nominee.' }, { status: 500 })
+  }
+}
+
+/**
+ * PATCH /api/admin/nominees — put a staff member on (or remove them from)
+ * the public ballot.
+ * Body: { sn, nominated }
+ */
+export async function PATCH(request: NextRequest) {
+  try {
+    await requireAdmin()
+
+    let body: { sn?: unknown; nominated?: unknown }
+    try {
+      body = (await request.json()) as { sn?: unknown; nominated?: unknown }
+    } catch {
+      return NextResponse.json({ error: 'Invalid request body.' }, { status: 400 })
+    }
+
+    const sn = typeof body.sn === 'number' ? body.sn : Number.parseInt(String(body.sn ?? ''), 10)
+    if (!Number.isFinite(sn) || typeof body.nominated !== 'boolean') {
+      return NextResponse.json({ error: 'S/N and nominated (boolean) are required.' }, { status: 400 })
+    }
+
+    const result = await setNominated(sn, body.nominated)
+    if (!result.ok) {
+      return NextResponse.json({ error: result.error }, { status: result.status })
+    }
+    return NextResponse.json({ ok: true, nominee: result.nominee })
+  } catch (error) {
+    if ((error as Error & { status?: number }).status === 401) {
+      return NextResponse.json({ error: 'Unauthorised.' }, { status: 401 })
+    }
+    console.error('Nomination toggle failed:', error instanceof Error ? error.message : error)
+    return NextResponse.json({ error: 'Failed to update nomination.' }, { status: 500 })
   }
 }
 

@@ -286,8 +286,8 @@ export default function Page() {
                 <dd className="mt-2 text-sm font-semibold text-[#15291f]">{votingMonth}</dd>
               </div>
               <div className="py-4">
-                <dt className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#84948a]">Register</dt>
-                <dd className="mt-2 text-sm font-semibold text-[#15291f] tabular-nums">{loadingStaff ? '—' : `${staff.length} staff`}</dd>
+                <dt className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#84948a]">Ballot</dt>
+                <dd className="mt-2 text-sm font-semibold text-[#15291f] tabular-nums">{loadingStaff ? '—' : `${staff.length} nominees`}</dd>
               </div>
             </dl>
           </div>
@@ -296,7 +296,7 @@ export default function Page() {
           <div className="lg:pt-2">
             <div className="border border-[#e3ebe5] bg-[#fbfcfb]">
               <div className="flex items-baseline justify-between border-b border-[#e3ebe5] px-5 py-4">
-                <h2 className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#47584d]">Nominal register</h2>
+                <h2 className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#47584d]">On the ballot</h2>
                 <span className="font-mono text-[11px] text-[#84948a]">2026</span>
               </div>
               <ul className="divide-y divide-[#edf2ee]">
@@ -312,12 +312,12 @@ export default function Page() {
                 onClick={() => setIsVoteOpen(true)}
                 className="flex w-full items-center justify-between border-t border-[#e3ebe5] px-5 py-4 text-left text-sm font-semibold text-[#087443] transition hover:bg-[#f2f8f4]"
               >
-                View the full register — {loadingStaff ? '…' : `${staff.length} names`}
+                View the full ballot — {loadingStaff ? '…' : `${staff.length} names`}
                 <ArrowRight className="size-4" />
               </button>
             </div>
             <p className="mt-3 text-xs leading-5 text-[#84948a]">
-              Every name on the official roll may be nominated. Voting closes when the cycle ends.
+              Only staff nominated for this cycle appear on the ballot. Every staff member can vote.
             </p>
           </div>
         </div>
@@ -333,7 +333,7 @@ export default function Page() {
           <div className="grid gap-10 pt-10 md:grid-cols-3 md:gap-8">
             {[
               { n: '01', t: 'Verify your number', d: 'Enter the phone number registered on the IPPIS nominal roll. The system matches it against the official register' },
-              { n: '02', t: 'Choose a colleague', d: 'Search the register and select the staff whose work stood out this month. Every name on the roll is eligible.' },
+              { n: '02', t: 'Choose a colleague', d: 'Search the ballot and select the nominated staff member whose work stood out this month.' },
               { n: '03', t: 'Submit once', d: 'One phone number, one vote.' },
             ].map((step) => (
               <div key={step.n}>
@@ -469,7 +469,9 @@ export default function Page() {
                       ))
                     )}
                     {!loadingStaff && filteredStaff.length === 0 && (
-                      <p className="px-4 py-6 text-center text-sm text-[#84948a]">No name matches “{search}”.</p>
+                      <p className="px-4 py-6 text-center text-sm text-[#84948a]">
+                        {search ? `No name matches “${search}”.` : 'No staff have been nominated yet.'}
+                      </p>
                     )}
                   </div>
                 </div>

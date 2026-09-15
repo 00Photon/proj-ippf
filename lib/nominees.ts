@@ -5,14 +5,19 @@ export interface Nominee {
   sn: number
   name: string
   phone: string
+  nominated: boolean
 }
 
 let ready: Promise<void> | null = null
 
 /**
- * Ensures the nominees table exists and is seeded from the original static
- * roll in lib/staff.ts. Idempotent and memoised per server instance, so the
- * first DB-backed call performs the migration and every later call is free.
+ * Ensures the nominees table exists, adds the `nominated` flag when missing,
+ * and seeds from the original static roll in lib/staff.ts. Idempotent and
+ * memoised per server instance, so the first DB-backed call performs the
+ * migration and every later call is free.
+ *
+ * New staff default to nominated = false: every staff member can vote, but
+ * only those an admin explicitly nominates appear on the public ballot.
  */
 async function ensureNomineesTable(): Promise<void> {
   if (!ready) {
@@ -25,9 +30,12 @@ async function ensureNomineesTable(): Promise<void> {
           created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )
       `
+      // Migration for existing installs: add the nomination flag.
+      await sql`ALTER TABLE nominees ADD COLUMN IF NOT EXISTS nominated BOOLEAN NOT NULL DEFAULT false`
+
       const countRows = (await sql`SELECT COUNT(*)::int AS n FROM nominees`) as unknown as { n: number }[]
       if ((countRows[0]?.n ?? 0) === 0) {
-        // Seed from the original static roll, preserving S/Ns
+        // Seed from the original static roll, preserving S/Ns (not nominated by default)
         const values: unknown[] = []
         const tuples = staffList.map((m) => {
           values.push(m.sn, m.name, m.phone)
@@ -56,11 +64,20 @@ async function ensureNomineesTable(): Promise<void> {
 export async function getNominees(): Promise<Nominee[]> {
   try {
     await ensureNomineesTable()
-    return (await sql`SELECT sn, name, phone FROM nominees ORDER BY sn ASC`) as unknown as Nominee[]
+    return (await sql`SELECT sn, name, phone, nominated FROM nominees ORDER BY sn ASC`) as unknown as Nominee[]
   } catch (error) {
     console.error('Nominees load failed, using static roll:', error instanceof Error ? error.message : error)
-    return staffList
+    return staffList.map((m) => ({ ...m, nominated: false }))
   }
+}
+
+/**
+ * Only the nominated staff — the names shown on the public ballot and front
+ * page. Admin-managed via the Staff tab.
+ */
+export async function getNominatedNominees(): Promise<Nominee[]> {
+  const list = await getNominees()
+  return list.filter((member) => member.nominated)
 }
 
 /** Look up a nominee by voter-supplied phone number (any common format). */
@@ -89,7 +106,7 @@ export async function addNominee(nameRaw: string, phoneRaw: string): Promise<Add
     await ensureNomineesTable()
     const rows = (await sql`
       INSERT INTO nominees (name, phone) VALUES (${name}, ${phone})
-      RETURNING sn, name, phone
+      RETURNING sn, name, phone, nominated
     `) as unknown as Nominee[]
     return { ok: true, nominee: rows[0] }
   } catch (error) {
@@ -128,7 +145,7 @@ export async function updateNominee(sn: number, nameRaw: string, phoneRaw: strin
     const rows = (await sql`
       UPDATE nominees SET name = ${name}, phone = ${phone}
       WHERE sn = ${sn}
-      RETURNING sn, name, phone
+      RETURNING sn, name, phone, nominated
     `) as unknown as Nominee[]
     if (rows.length === 0) {
       return { ok: false, error: 'Nominee not found.', status: 404 }
@@ -144,30 +161,60 @@ export async function updateNominee(sn: number, nameRaw: string, phoneRaw: strin
   }
 }
 
+export type SetNominatedResult =
+  | { ok: true; nominee: Nominee }
+  | { ok: false; error: string; status: 400 | 404 | 500 }
+
+/**
+ * Flags (or unflags) a staff member for the public ballot. Votes already
+ * received are kept — withdrawing a nomination only hides the staff member
+ * from the ballot; their past tallies stay on record.
+ */
+export async function setNominated(sn: number, nominated: boolean): Promise<SetNominatedResult> {
+  if (!Number.isFinite(sn)) {
+    return { ok: false, error: 'Invalid staff S/N.', status: 400 }
+  }
+  try {
+    await ensureNomineesTable()
+    const rows = (await sql`
+      UPDATE nominees SET nominated = ${nominated}
+      WHERE sn = ${sn}
+      RETURNING sn, name, phone, nominated
+    `) as unknown as Nominee[]
+    if (rows.length === 0) {
+      return { ok: false, error: 'Staff member not found.', status: 404 }
+    }
+    return { ok: true, nominee: rows[0] }
+  } catch (error) {
+    console.error('Set nominated failed:', error instanceof Error ? error.message : error)
+    return { ok: false, error: 'Could not update the nomination. Please try again.', status: 500 }
+  }
+}
+
 export type RemoveNomineeResult = { ok: true } | { ok: false; error: string; status: 400 | 404 | 409 | 500 }
 
 /**
- * Removes a nominee by S/N. Refuses while the nominee still has votes
+ * Removes a staff member by S/N. Refuses while they still have votes
  * recorded, so tallies and the audit trail stay consistent.
  */
 export async function removeNominee(sn: number): Promise<RemoveNomineeResult> {
   if (!Number.isFinite(sn)) {
-    return { ok: false, error: 'Invalid nominee S/N.', status: 400 }
+    return { ok: false, error: 'Invalid staff S/N.', status: 400 }
   }
   try {
     await ensureNomineesTable()
     const voteRows = (await sql`SELECT COUNT(*)::int AS n FROM votes WHERE candidate_sn = ${sn}`) as unknown as { n: number }[]
     const votes = voteRows[0]?.n ?? 0
     if (votes > 0) {
-      return { ok: false, error: `This nominee has ${votes} vote(s) recorded. Delete their votes first.`, status: 409 }
+      return { ok: false, error: `This staff member has ${votes} vote(s) recorded. Delete their votes first.`, status: 409 }
     }
     const deleted = (await sql`DELETE FROM nominees WHERE sn = ${sn} RETURNING sn`) as unknown as { sn: number }[]
     if (deleted.length === 0) {
-      return { ok: false, error: 'Nominee not found.', status: 404 }
+      return { ok: false, error: 'Staff member not found.', status: 404 }
     }
     return { ok: true }
   } catch (error) {
     console.error('Remove nominee failed:', error instanceof Error ? error.message : error)
-    return { ok: false, error: 'Could not remove the nominee. Please try again.', status: 500 }
+    return { ok: false, error: 'Could not remove the staff member. Please try again.', status: 500 }
   }
 }

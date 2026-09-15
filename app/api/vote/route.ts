@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { sql, type VoteRow } from '@/lib/db'
 import { normalizePhone } from '@/lib/staff'
-import { findNomineeByPhone, getNominees } from '@/lib/nominees'
+import { findNomineeByPhone, getNominees, getNominatedNominees } from '@/lib/nominees'
 import { formatLocation, getAuditInfo, lookupIpLocation } from '@/lib/audit'
 import { getSettings } from '@/lib/admin-auth'
 
@@ -43,11 +43,11 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  // 2. Validate the candidate
-  const nominees = await getNominees()
-  const candidate = nominees.find((member) => member.sn === candidateSn)
+  // 2. Validate the candidate — must be a staff member currently on the ballot
+  const ballot = await getNominatedNominees()
+  const candidate = ballot.find((member) => member.sn === candidateSn)
   if (!candidate) {
-    return NextResponse.json({ error: 'Please select a valid nominee.' }, { status: 400 })
+    return NextResponse.json({ error: 'Please select a nominee who is on the ballot.' }, { status: 400 })
   }
 
   // 3. Record the vote — voter_phone is UNIQUE, so a second vote fails at DB level.

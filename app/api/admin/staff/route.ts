@@ -7,8 +7,8 @@ export const dynamic = 'force-dynamic'
 
 /**
  * Admin staff endpoint: the full nominal roll including phone numbers,
- * plus how many votes each staff member has received and whether they
- * have voted themselves.
+ * plus how many votes each staff member has received, whether they have
+ * voted themselves, and whether they are on the public ballot (`nominated`).
  */
 export async function GET() {
   try {
@@ -27,16 +27,18 @@ export async function GET() {
 
     const nominees = await getNominees()
 
-    const staff = nominees.map(({ sn, name, phone }) => ({
+    const staff = nominees.map(({ sn, name, phone, nominated }) => ({
       sn,
       name,
       phone,
+      nominated,
       votesReceived: receivedRows.find((r) => r.candidate_sn === sn)?.count ?? 0,
       hasVoted: voters.has(phone),
     }))
 
     return NextResponse.json({
       total: staff.length,
+      nominatedCount: staff.filter((s) => s.nominated).length,
       votedCount: staff.filter((s) => s.hasVoted).length,
       staff,
     })

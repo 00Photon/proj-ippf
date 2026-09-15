@@ -21,6 +21,8 @@ import {
   Search,
   Settings as SettingsIcon,
   ShieldCheck,
+  Star,
+  StarOff,
   Trash2,
   TrendingUp,
   Trophy,
@@ -84,16 +86,18 @@ interface StaffRow {
   sn: number
   name: string
   phone: string
+  nominated: boolean
   votesReceived: number
   hasVoted: boolean
 }
 interface StaffData {
   total: number
+  nominatedCount: number
   votedCount: number
   staff: StaffRow[]
 }
 
-type View = 'overview' | 'votes' | 'nominees' | 'settings'
+type View = 'overview' | 'votes' | 'staff' | 'settings'
 
 const MONTHS = [
   'September 2026', 'October 2026', 'November 2026', 'December 2026',
@@ -375,8 +379,7 @@ function OverviewView({
 
       <div className="grid gap-6 xl:grid-cols-[1.4fr_1fr]">
         <Card>
-          <CardTitle eyebrow="Standings" title="Votes by nominee" right={<BarChart3 className="size-5 text-[#8cc9a6]" />} />
-          <div className="mt-5 flex max-h-[380px] flex-col gap-2.5 overflow-y-auto pr-1">
+          <CardTitle eyebrow="Standings" title="Votes by nominee" right={<BarChart3 className="size-5 text-[#8cc9a6]" />} />          <div className="mt-5 flex max-h-[380px] flex-col gap-2.5 overflow-y-auto pr-1">
             {results?.results.map((r) => (
               <div key={r.sn} className="flex items-center gap-3">
                 <span className="w-8 shrink-0 text-right font-mono text-xs text-[#a4b8ae]">{r.sn}</span>
@@ -771,15 +774,16 @@ function VotesView({ month, onMonthChange, onDeleteVote, refreshKey }: { month: 
   )
 }
 
-/* ============ Nominees view ============ */
+/* ============ Staff view ============ */
 
-function NomineesView({
+function StaffView({
   staffData,
   onDeleteVotesFor,
   onRevealPhone,
   onAddNominee,
   onEditNominee,
   onRemoveNominee,
+  onSetNominated,
 }: {
   staffData: StaffData | null
   onDeleteVotesFor: (sn: number, name: string) => void
@@ -787,9 +791,10 @@ function NomineesView({
   onAddNominee: (name: string, phone: string) => Promise<boolean | string>
   onEditNominee: (sn: number, name: string, phone: string) => Promise<boolean | string>
   onRemoveNominee: (sn: number, name: string) => Promise<void>
+  onSetNominated: (sn: number, name: string, nominated: boolean) => Promise<void>
 }) {
   const [search, setSearch] = useState('')
-  const [votedOnly, setVotedOnly] = useState<'all' | 'voted' | 'not-voted'>('all')
+  const [filter, setFilter] = useState<'all' | 'voted' | 'not-voted' | 'nominated' | 'not-nominated'>('all')
   const [showAddForm, setShowAddForm] = useState(false)
   // When editingSn is set, the modal edits that nominee instead of adding
   const [editingSn, setEditingSn] = useState<number | null>(null)
@@ -836,12 +841,14 @@ function NomineesView({
     if (!staffData) return []
     const q = search.toLowerCase()
     return staffData.staff.filter((s) => {
-      if (votedOnly === 'voted' && !s.hasVoted) return false
-      if (votedOnly === 'not-voted' && s.hasVoted) return false
+      if (filter === 'voted' && !s.hasVoted) return false
+      if (filter === 'not-voted' && s.hasVoted) return false
+      if (filter === 'nominated' && !s.nominated) return false
+      if (filter === 'not-nominated' && s.nominated) return false
       if (!q) return true
       return s.name.toLowerCase().includes(q) || s.phone.includes(q) || String(s.sn).includes(q)
     })
-  }, [staffData, search, votedOnly])
+  }, [staffData, search, filter])
 
   const maxReceived = Math.max(1, ...(staffData?.staff.map((s) => s.votesReceived) ?? [1]))
 
@@ -869,7 +876,7 @@ function NomineesView({
       <div className="flex flex-col gap-4 border-b border-[#eef3f0] p-6 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <p className="text-xs font-bold uppercase tracking-[0.14em] text-[#71867d]">Nominal roll</p>
-          <h2 className="mt-1 text-lg font-bold tracking-tight">All {staffData?.total ?? 89} nominees</h2>
+          <h2 className="mt-1 text-lg font-bold tracking-tight">All {staffData?.total ?? 89} staff · {staffData?.nominatedCount ?? 0} on the ballot</h2>
         </div>
         <div className="flex flex-col gap-2 sm:flex-row">
           <label className="relative">
@@ -882,11 +889,13 @@ function NomineesView({
             />
           </label>
           <select
-            value={votedOnly}
-            onChange={(e) => setVotedOnly(e.target.value as 'all' | 'voted' | 'not-voted')}
+            value={filter}
+            onChange={(e) => setFilter(e.target.value as 'all' | 'voted' | 'not-voted' | 'nominated' | 'not-nominated')}
             className="rounded-xl border border-[#d7e5de] bg-[#fbfdfc] px-3 py-2.5 text-sm font-semibold text-[#315d4a] outline-none ring-[#0b8a51] focus:ring-2"
           >
             <option value="all">All staff</option>
+            <option value="nominated">★ On the ballot</option>
+            <option value="not-nominated">Not on the ballot</option>
             <option value="voted">✓ Have voted</option>
             <option value="not-voted">Not yet voted</option>
           </select>
@@ -895,7 +904,7 @@ function NomineesView({
             className="flex items-center justify-center gap-2 rounded-xl bg-[#0b8a51] px-4 py-2.5 text-xs font-bold text-white transition hover:bg-[#0a7a47]"
             title="Add a new staff member to the nominal roll"
           >
-            <UserPlus className="size-3.5" /> Add nominee
+            <UserPlus className="size-3.5" /> Add staff
           </button>
           <button
             onClick={exportStaffCsv}
@@ -913,6 +922,7 @@ function NomineesView({
             <tr className="border-b border-[#e4eee8] text-left text-xs uppercase tracking-wider text-[#71867d]">
               <th className="pb-3 pr-3 font-bold">S/N</th>
               <th className="pb-3 pr-3 font-bold">Name</th>
+              <th className="pb-3 pr-3 font-bold">Ballot</th>
               <th className="pb-3 pr-3 font-bold">Phone</th>
               <th className="pb-3 pr-3 font-bold">Votes received</th>
               <th className="pb-3 pr-3 font-bold">Participation</th>
@@ -928,6 +938,13 @@ function NomineesView({
                     <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-[#eef7f2] text-[10px] font-bold text-[#0b8a51]">{initialsOf(s.name)}</div>
                     <span className="font-semibold text-[#26483a]">{s.name}</span>
                   </div>
+                </td>
+                <td className="py-3 pr-3">
+                  {s.nominated ? (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-[#fdf6e3] px-2.5 py-1 text-[11px] font-bold text-[#b78014]"><Star className="size-3 fill-current" /> On ballot</span>
+                  ) : (
+                    <span className="rounded-full bg-[#f1f4f2] px-2.5 py-1 text-[11px] font-bold text-[#8a9a91]">—</span>
+                  )}
                 </td>
                 <td className="py-3 pr-3">
                   <button onClick={() => onRevealPhone(s.phone)} className="font-mono text-xs text-[#587268] transition hover:text-[#0b8a51]" title="Copy phone number">
@@ -952,6 +969,9 @@ function NomineesView({
                 <td className="py-3 pr-1">
                   <RowActions
                     items={[
+                      s.nominated
+                        ? { label: 'Withdraw from ballot', icon: <StarOff className="size-4" />, onClick: () => onSetNominated(s.sn, s.name, false) }
+                        : { label: 'Nominate for ballot', icon: <Star className="size-4" />, onClick: () => onSetNominated(s.sn, s.name, true) },
                       { label: 'Copy phone', icon: <Phone className="size-4" />, onClick: () => onRevealPhone(s.phone) },
                       { label: 'Edit name / phone', icon: <Pencil className="size-4" />, onClick: () => openEditModal(s.sn, s.name, s.phone) },
                       { label: 'Delete their votes', icon: <Trash2 className="size-4" />, onClick: () => onDeleteVotesFor(s.sn, s.name), danger: true },
@@ -963,7 +983,7 @@ function NomineesView({
             ))}
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={6} className="py-10 text-center text-sm text-[#8a9a91]">No staff match your filter.</td>
+                <td colSpan={7} className="py-10 text-center text-sm text-[#8a9a91]">No staff match your filter.</td>
               </tr>
             )}
           </tbody>
@@ -1019,7 +1039,7 @@ function NomineesView({
               <p className="text-center text-xs text-[#8a9a91]">
                 {editingSn !== null
                   ? 'Votes already cast keep the phone number used at vote time.'
-                  : 'They become immediately eligible to receive and cast votes.'}
+                  : 'They can immediately sign in to vote. Use “Nominate for ballot” to make them votable on the front page.'}
               </p>
             </form>
           </div>
@@ -1243,7 +1263,7 @@ function SettingsView({
 const NAV: { key: View; label: string; icon: React.ReactNode }[] = [
   { key: 'overview', label: 'Overview', icon: <LayoutDashboard className="size-4.5" /> },
   { key: 'votes', label: 'Votes', icon: <ClipboardList className="size-4.5" /> },
-  { key: 'nominees', label: 'Nominees', icon: <Users className="size-4.5" /> },
+  { key: 'staff', label: 'Staff', icon: <Users className="size-4.5" /> },
   { key: 'settings', label: 'Settings', icon: <SettingsIcon className="size-4.5" /> },
 ]
 
@@ -1457,10 +1477,30 @@ export default function AdminPage() {
       const res = await fetch(`/api/admin/nominees?sn=${sn}`, { method: 'DELETE' })
       const data = await res.json()
       if (!res.ok) {
-        showToast(false, (data.error as string) ?? 'Failed to remove nominee')
+        showToast(false, (data.error as string) ?? 'Failed to remove staff member')
         return
       }
       showToast(true, `${name} removed from the roll`)
+      await loadData()
+    } catch {
+      showToast(false, 'Network error. Please try again.')
+    }
+  }
+
+  async function setNominated(sn: number, name: string, nominated: boolean) {
+    if (!nominated && !confirm(`Withdraw ${name} from the ballot? Past votes stay on record, but they can no longer receive new votes.`)) return
+    try {
+      const res = await fetch('/api/admin/nominees', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sn, nominated }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        showToast(false, (data.error as string) ?? 'Failed to update nomination')
+        return
+      }
+      showToast(true, nominated ? `${name} added to the ballot` : `${name} withdrawn from the ballot`)
       await loadData()
     } catch {
       showToast(false, 'Network error. Please try again.')
@@ -1547,14 +1587,15 @@ export default function AdminPage() {
           {view === 'votes' && (
             <VotesView month={monthFilter} onMonthChange={setMonthFilter} onDeleteVote={deleteVote} refreshKey={refreshKey} />
           )}
-          {view === 'nominees' && (
-            <NomineesView
+          {view === 'staff' && (
+            <StaffView
               staffData={staffData}
               onDeleteVotesFor={deleteVotesFor}
               onRevealPhone={copyPhone}
               onAddNominee={addNominee}
               onEditNominee={editNominee}
               onRemoveNominee={removeNominee}
+              onSetNominated={setNominated}
             />
           )}
           {view === 'settings' && (
