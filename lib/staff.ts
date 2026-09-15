@@ -18,8 +18,7 @@ export const staffList: StaffMember[] = [
   { sn: 2, name: 'Anosike Catherine E.', phone: '08145334685', division: 'Director IPPIS Office' },
   { sn: 3, name: 'EZEUDE Ifeanyichukwu James', phone: '07039809179', division: 'Director IPPIS Office' },
   { sn: 4, name: 'ACHAYI, Timothy', phone: '08133366991', division: 'Director IPPIS Office' },
-  // NOTE: 10 digits on the source sheet — confirm the missing digit with the admin.
-  { sn: 5, name: 'SHINGA Akila Talatu', phone: '0806934053', division: 'Director IPPIS Office' },
+  { sn: 5, name: 'SHINGA Akila Talatu', phone: '08069734053', division: 'Director IPPIS Office' },
   { sn: 6, name: 'MATHIAS Ishaku', phone: '08028289864', division: 'Director IPPIS Office' },
   { sn: 7, name: 'OGBU Jude Ochima', phone: '08162353685', division: 'Director IPPIS Office' },
   { sn: 8, name: 'HANGE Joseph Sekav', phone: '09020069915', division: 'Director IPPIS Office' },
@@ -32,8 +31,7 @@ export const staffList: StaffMember[] = [
   { sn: 13, name: 'BALOGUN Olatayo Michael', phone: '09124396232', division: 'Payroll' },
   { sn: 14, name: 'MEYANGA Zainab Blessing', phone: '08035904265', division: 'Payroll' },
   { sn: 15, name: 'YUSUF Bashir Ilela', phone: '08065610736', division: 'Payroll' },
-  // NOTE: 10 digits on the source sheet — confirm the missing digit with the admin.
-  { sn: 16, name: 'GARBA David Antuwa', phone: '0803637484', division: 'Payroll' },
+  { sn: 16, name: 'GARBA David Antuwa', phone: '08036837484', division: 'Payroll' },
   { sn: 17, name: 'OKONKWO Helen Moses', phone: '07033727267', division: 'Payroll' },
   { sn: 18, name: 'ADEFARATI Mary Adebola', phone: '08065543215', division: 'Payroll' },
   { sn: 19, name: 'OLA-OJO Grace Bosede', phone: '09032156789', division: 'Payroll' },
@@ -114,8 +112,6 @@ export const staffList: StaffMember[] = [
   { sn: 84, name: 'Ogboji Anna Onyeche', phone: '07032139877', division: 'Third Party' },
   { sn: 85, name: 'SAMUEL Grace Asinamai', phone: '07035563647', division: 'Third Party' },
   { sn: 86, name: 'HASSAN Abdulrahman Auna', phone: '07034938441', division: 'Third Party' },
-  // NOTE: source sheet had 12 digits (080359886157) — one digit is extraneous;
-  // stored as the most plausible 11-digit reading. Confirm with the admin.
   { sn: 87, name: 'ADESINA Adeleke Abbey', phone: '08035986157', division: 'Third Party' },
   { sn: 88, name: 'SALAMI Zainab Adepeju', phone: '07068276355', division: 'Third Party' },
 ]
