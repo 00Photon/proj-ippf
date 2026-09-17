@@ -356,9 +356,15 @@ function RowActions({ items }: { items: { label: string; icon: React.ReactNode; 
   )
 }
 
-/* ============ Overview view ============ */
 
-function OverviewView({
+/* ============ Vote summary (shared by Overview + Votes tabs) ============ */
+
+/**
+ * Detailed general-vote summary: percentage stat cards, standings with share
+ * bars, vote-share donut and daily/hourly trend charts, plus the PDF export.
+ * Rendered on the Overview tab and at the top of the Votes tab.
+ */
+function VoteSummary({
   results,
   settings,
   cycles,
@@ -419,7 +425,7 @@ function OverviewView({
 
   return (
     <div className="flex flex-col gap-6">
-      {/* Reporting-period filter */}
+      {/* Reporting-period filter + PDF export */}
       <Card className="!p-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -428,33 +434,36 @@ function OverviewView({
               {month === '__all__' ? 'All-time totals across every cycle' : `Votes cast in the ${month} cycle`}
             </p>
           </div>
-          <label className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.14em] text-[#71867d]">
-            Month
-            <select
-              value={month}
-              onChange={(e) => onMonthChange(e.target.value)}
-              className="rounded-xl border border-[#d7e5de] bg-[#fbfdfc] px-3 py-2.5 text-sm font-semibold normal-case tracking-normal text-[#315d4a] outline-none ring-[#0b8a51] focus:ring-2"
-              aria-label="Filter overview by voting month"
+          <div className="flex flex-wrap items-center gap-3">
+            <label className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.14em] text-[#71867d]">
+              Month
+              <select
+                value={month}
+                onChange={(e) => onMonthChange(e.target.value)}
+                className="rounded-xl border border-[#d7e5de] bg-[#fbfdfc] px-3 py-2.5 text-sm font-semibold normal-case tracking-normal text-[#315d4a] outline-none ring-[#0b8a51] focus:ring-2"
+                aria-label="Filter overview by voting month"
+              >
+                <option value="__all__">All time</option>
+                {cycles.map((c) => (
+                  <option key={c.month} value={c.month}>
+                    {c.month}{c.isCurrent ? ' · current' : ''} ({c.votes} vote{c.votes === 1 ? '' : 's'})
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button
+              onClick={exportPdf}
+              disabled={exportingPdf || !results}
+              className="flex items-center justify-center gap-2 rounded-xl bg-[#0b8a51] px-4 py-2.5 text-xs font-bold text-white transition hover:bg-[#0a7a47] disabled:opacity-50"
+              title="Download the full vote report as a formatted PDF"
             >
-              <option value="__all__">All time</option>
-              {cycles.map((c) => (
-                <option key={c.month} value={c.month}>
-                  {c.month}{c.isCurrent ? ' · current' : ''} ({c.votes} vote{c.votes === 1 ? '' : 's'})
-                </option>
-              ))}
-            </select>
-          </label>
-          <button
-            onClick={exportPdf}
-            disabled={exportingPdf || !results}
-            className="flex items-center justify-center gap-2 rounded-xl bg-[#0b8a51] px-4 py-2.5 text-xs font-bold text-white transition hover:bg-[#0a7a47] disabled:opacity-50"
-            title="Download the full vote report as a formatted PDF"
-          >
-            {exportingPdf ? <Loader2 className="size-3.5 animate-spin" /> : <FileDown className="size-3.5" />} Export PDF
-          </button>
+              {exportingPdf ? <Loader2 className="size-3.5 animate-spin" /> : <FileDown className="size-3.5" />} Export PDF
+            </button>
+          </div>
         </div>
       </Card>
 
+      {/* Stat cards */}
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {statCards.map((card) => (
           <Card key={card.label} className="!p-5">
@@ -468,9 +477,11 @@ function OverviewView({
         ))}
       </div>
 
+      {/* Standings bars + vote-share donut */}
       <div className="grid gap-6 xl:grid-cols-[1.4fr_1fr]">
         <Card>
-          <CardTitle eyebrow="Standings" title="Votes by nominee" right={<BarChart3 className="size-5 text-[#8cc9a6]" />} />          <div className="mt-5 flex max-h-[380px] flex-col gap-2.5 overflow-y-auto pr-1">
+          <CardTitle eyebrow="Standings" title="Votes by nominee" right={<BarChart3 className="size-5 text-[#8cc9a6]" />} />
+          <div className="mt-5 flex max-h-[380px] flex-col gap-2.5 overflow-y-auto pr-1">
             {results?.results.map((r) => (
               <div key={r.sn} className="flex items-center gap-3">
                 <span className="w-8 shrink-0 text-right font-mono text-xs text-[#a4b8ae]">{r.sn}</span>
@@ -519,42 +530,73 @@ function OverviewView({
             </div>
           </div>
         </Card>
-
-        <div className="grid gap-6 sm:grid-cols-2 xl:grid-cols-[1fr_1fr_1fr_1fr]">
-          <Card className="sm:col-span-2 xl:col-span-2">
-            <CardTitle eyebrow="Daily trend" title="Votes per day" />
-            <div className="mt-5 flex h-28 items-end gap-1.5">
-              {results?.perDay.length ? (
-                results.perDay.map((d) => (
-                  <div key={d.day} className="group relative flex-1" title={`${d.day}: ${d.count} vote(s) (${pct(d.count, totalVotes)}%)`}>
-                    <div className="w-full rounded-t-md bg-gradient-to-t from-[#0b8a51] to-[#3ecf8e]" style={{ height: `${Math.max(6, (d.count / maxDay) * 100)}%` }} />
-                  </div>
-                ))
-              ) : (
-                <p className="self-center text-sm text-[#8a9a91]">No votes yet.</p>
-              )}
-            </div>
-            {results?.perDay.length ? (
-              <p className="mt-2 text-xs text-[#8a9a91]">{results.perDay[0].day} → {results.perDay[results.perDay.length - 1].day}</p>
-            ) : null}
-          </Card>
-          <Card className="sm:col-span-2 xl:col-span-2">
-            <CardTitle eyebrow="Peak activity" title="Votes by hour" />
-            <div className="mt-5 flex h-28 items-end gap-1">
-              {results?.perHour.length ? (
-                results.perHour.map((h, i) => (
-                  <div key={`${h.hour}-${i}`} className="relative flex-1" title={`${h.hour} — ${h.count} vote(s) (${pct(h.count, totalVotes)}%)`}>
-                    <div className="w-full rounded-t-md bg-[#7fb99a]" style={{ height: `${Math.max(6, (h.count / maxHour) * 100)}%` }} />
-                  </div>
-                ))
-              ) : (
-                <p className="self-center text-sm text-[#8a9a91]">No votes yet.</p>
-              )}
-            </div>
-          </Card>
-        </div>
       </div>
 
+      {/* Daily + hourly trend charts */}
+      <div className="grid gap-6 sm:grid-cols-2">
+        <Card>
+          <CardTitle eyebrow="Daily trend" title="Votes per day" />
+          <div className="mt-5 flex h-28 items-end gap-1.5">
+            {results?.perDay.length ? (
+              results.perDay.map((d) => (
+                <div key={d.day} className="group relative flex-1" title={`${d.day}: ${d.count} vote(s) (${pct(d.count, totalVotes)}%)`}>
+                  <div className="w-full rounded-t-md bg-gradient-to-t from-[#0b8a51] to-[#3ecf8e]" style={{ height: `${Math.max(6, (d.count / maxDay) * 100)}%` }} />
+                </div>
+              ))
+            ) : (
+              <p className="self-center text-sm text-[#8a9a91]">No votes yet.</p>
+            )}
+          </div>
+          {results?.perDay.length ? (
+            <p className="mt-2 text-xs text-[#8a9a91]">{results.perDay[0].day} → {results.perDay[results.perDay.length - 1].day}</p>
+          ) : null}
+        </Card>
+        <Card>
+          <CardTitle eyebrow="Peak activity" title="Votes by hour" />
+          <div className="mt-5 flex h-28 items-end gap-1">
+            {results?.perHour.length ? (
+              results.perHour.map((h, i) => (
+                <div key={`${h.hour}-${i}`} className="relative flex-1" title={`${h.hour} — ${h.count} vote(s) (${pct(h.count, totalVotes)}%)`}>
+                  <div className="w-full rounded-t-md bg-[#7fb99a]" style={{ height: `${Math.max(6, (h.count / maxHour) * 100)}%` }} />
+                </div>
+              ))
+            ) : (
+              <p className="self-center text-sm text-[#8a9a91]">No votes yet.</p>
+            )}
+          </div>
+        </Card>
+      </div>
+    </div>
+  )
+}
+
+/* ============ Overview view ============ */
+
+/** Overview = shared vote summary + recent-votes live feed. */
+function OverviewView({
+  results,
+  settings,
+  cycles,
+  month,
+  onMonthChange,
+}: {
+  results: Results | null
+  settings: Settings | null
+  cycles: Cycle[]
+  month: string
+  onMonthChange: (m: string) => void
+}) {
+  return (
+    <div className="flex flex-col gap-6">
+      <VoteSummary
+        results={results}
+        settings={settings}
+        cycles={cycles}
+        month={month}
+        onMonthChange={onMonthChange}
+      />
+
+      {/* Live feed */}
       <Card>
         <CardTitle
           eyebrow="Live feed"
@@ -598,7 +640,23 @@ interface VotesPage {
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100]
 
-function VotesView({ month, onMonthChange, onDeleteVote, refreshKey }: { month: string; onMonthChange: (m: string) => void; onDeleteVote: (id: number) => void; refreshKey: number }) {
+function VotesView({
+  month,
+  onMonthChange,
+  onDeleteVote,
+  refreshKey,
+  results,
+  settings,
+  cycles,
+}: {
+  month: string
+  onMonthChange: (m: string) => void
+  onDeleteVote: (id: number) => void
+  refreshKey: number
+  results: Results | null
+  settings: Settings | null
+  cycles: Cycle[]
+}) {
   const [searchInput, setSearchInput] = useState('')
   const [search, setSearch] = useState('') // debounced
   const [proxyOnly, setProxyOnly] = useState(false)
@@ -608,7 +666,6 @@ function VotesView({ month, onMonthChange, onDeleteVote, refreshKey }: { month: 
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [exporting, setExporting] = useState(false)
-  const [cycles, setCycles] = useState<Cycle[]>([])
 
   // Debounce search input → query (300ms)
   useEffect(() => {
@@ -639,7 +696,6 @@ function VotesView({ month, onMonthChange, onDeleteVote, refreshKey }: { month: 
       .then((next) => {
         if (!cancelled) {
           setData(next)
-          setCycles(next.cycles ?? [])
         }
       })
       .catch(() => {
@@ -725,7 +781,17 @@ function VotesView({ month, onMonthChange, onDeleteVote, refreshKey }: { month: 
   }
 
   return (
-    <Card className="!p-0">
+    <div className="flex flex-col gap-6">
+      {/* Detailed summary (same as Overview) */}
+      <VoteSummary
+        results={results}
+        settings={settings}
+        cycles={cycles}
+        month={month}
+        onMonthChange={onMonthChange}
+      />
+
+      <Card className="!p-0">
       <div className="flex flex-col gap-4 border-b border-[#eef3f0] p-6 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <p className="text-xs font-bold uppercase tracking-[0.14em] text-[#71867d]">Vote log</p>
@@ -888,7 +954,8 @@ function VotesView({ month, onMonthChange, onDeleteVote, refreshKey }: { month: 
           </div>
         )}
       </div>
-    </Card>
+      </Card>
+    </div>
   )
 }
 
@@ -2274,7 +2341,15 @@ export default function AdminPage() {
             <OverviewView results={results} settings={settings} cycles={cycles} month={monthFilter} onMonthChange={setMonthFilter} />
           )}
           {view === 'votes' && (
-            <VotesView month={monthFilter} onMonthChange={setMonthFilter} onDeleteVote={deleteVote} refreshKey={refreshKey} />
+            <VotesView
+              month={monthFilter}
+              onMonthChange={setMonthFilter}
+              onDeleteVote={deleteVote}
+              refreshKey={refreshKey}
+              results={results}
+              settings={settings}
+              cycles={cycles}
+            />
           )}
           {view === 'divisions' && (
             <DivisionsView

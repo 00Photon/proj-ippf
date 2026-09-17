@@ -1,8 +1,8 @@
-pmOnFail: ignore
-
 minimumReleaseAgeExclude:
   - '@next/*'
   - next
 
-allowBuilds:
-  core-js: set this to true or false
+# pnpm 10 blocks dependency build scripts by default. Approve core-js
+# (transitive dep of jspdf — its postinstall only prints a funding notice).
+onlyBuiltDependencies:
+  - core-js
