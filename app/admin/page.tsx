@@ -31,9 +31,11 @@ import {
   TrendingUp,
   Trophy,
   Pencil,
+  UserCheck,
   UserMinus,
   UserPlus,
   Users,
+  UserX,
   X,
 } from 'lucide-react'
 import type { jsPDF } from 'jspdf'
@@ -94,6 +96,7 @@ interface StaffRow {
   phone: string
   division: string | null
   nominated: boolean
+  notNominee: boolean
   votesReceived: number
   hasVoted: boolean
 }
@@ -371,13 +374,46 @@ function OverviewView({
   const maxVotes = Math.max(1, ...(results?.results.map((r) => r.voteCount) ?? [1]))
   const maxDay = Math.max(1, ...(results?.perDay.map((d) => d.count) ?? [1]))
   const maxHour = Math.max(1, ...(results?.perHour.map((h) => h.count) ?? [1]))
+  const totalVotes = results?.totalVotes ?? 0
+  const proxyPct = pct(results?.proxyCount ?? 0, totalVotes)
+  const leaderShare = pct(results?.leader?.voteCount ?? 0, totalVotes)
+
+  // Vote-share donut: top 7 nominees + "Others"
+  const shareSlices = useMemo(() => {
+    const ranked = (results?.results ?? []).filter((r) => r.voteCount > 0)
+    const top = ranked.slice(0, 7).map((r, i) => ({ label: r.name, value: r.voteCount, color: divisionColor(i) }))
+    const restTotal = ranked.slice(7).reduce((sum, r) => sum + r.voteCount, 0)
+    return restTotal > 0 ? [...top, { label: 'Others', value: restTotal, color: '#b3c2ba' }] : top
+  }, [results])
+
+  const [exportingPdf, setExportingPdf] = useState(false)
+
+  async function exportPdf() {
+    if (!results) return
+    setExportingPdf(true)
+    try {
+      const { buildGeneralReportPdf } = await import('@/lib/general-report')
+      const doc = buildGeneralReportPdf({
+        month,
+        generatedAt: new Date().toISOString(),
+        votingOpen: settings?.votingOpen ?? false,
+        votingMonth: settings?.votingMonth ?? '',
+        results,
+      })
+      doc.save(`ippis-vote-report-${month === '__all__' ? 'all-time' : month.replace(/\s+/g, '-').toLowerCase()}-${csvTimestamp()}.pdf`)
+    } catch {
+      alert('PDF export failed. Please try again.')
+    } finally {
+      setExportingPdf(false)
+    }
+  }
 
   const statCards = results
     ? [
-        { icon: <Check className="size-5" />, label: 'Total votes', value: String(results.totalVotes), sub: `of ${results.totalStaff} staff`, accent: 'text-[#0b8a51]', bg: 'bg-[#eef7f2]' },
-        { icon: <TrendingUp className="size-5" />, label: 'Turnout', value: `${results.turnoutPct}%`, sub: `${results.remainingVotes} still to vote`, accent: 'text-[#2563eb]', bg: 'bg-[#eaf1fd]' },
-        { icon: <Trophy className="size-5" />, label: 'Leading', value: results.leader ? results.leader.name.split(' ')[0] : '—', sub: results.leader ? `${results.leader.voteCount} vote(s)` : 'No votes yet', accent: 'text-[#b78014]', bg: 'bg-[#fdf6e3]' },
-        { icon: <Fingerprint className="size-5" />, label: 'Integrity', value: String(results.uniqueIps), sub: `${results.proxyCount} flagged proxy/VPN`, accent: 'text-[#7c3aed]', bg: 'bg-[#f3eefd]' },
+        { icon: <Check className="size-5" />, label: 'Total votes', value: String(results.totalVotes), sub: `${results.turnoutPct}% of ${results.totalStaff} staff voted`, accent: 'text-[#0b8a51]', bg: 'bg-[#eef7f2]' },
+        { icon: <TrendingUp className="size-5" />, label: 'Turnout', value: `${results.turnoutPct}%`, sub: `${results.remainingVotes} still to vote (${pct(results.remainingVotes, results.totalStaff)}%)`, accent: 'text-[#2563eb]', bg: 'bg-[#eaf1fd]' },
+        { icon: <Trophy className="size-5" />, label: 'Leading', value: results.leader ? results.leader.name.split(' ')[0] : '—', sub: results.leader ? `${results.leader.voteCount} vote(s) · ${leaderShare}% share` : 'No votes yet', accent: 'text-[#b78014]', bg: 'bg-[#fdf6e3]' },
+        { icon: <Fingerprint className="size-5" />, label: 'Integrity', value: String(results.uniqueIps), sub: `${results.proxyCount} flagged VPN (${proxyPct}%)`, accent: 'text-[#7c3aed]', bg: 'bg-[#f3eefd]' },
       ]
     : []
 
@@ -408,6 +444,14 @@ function OverviewView({
               ))}
             </select>
           </label>
+          <button
+            onClick={exportPdf}
+            disabled={exportingPdf || !results}
+            className="flex items-center justify-center gap-2 rounded-xl bg-[#0b8a51] px-4 py-2.5 text-xs font-bold text-white transition hover:bg-[#0a7a47] disabled:opacity-50"
+            title="Download the full vote report as a formatted PDF"
+          >
+            {exportingPdf ? <Loader2 className="size-3.5 animate-spin" /> : <FileDown className="size-3.5" />} Export PDF
+          </button>
         </div>
       </Card>
 
@@ -435,7 +479,9 @@ function OverviewView({
                     <p className={`truncate text-sm font-semibold ${r.voteCount === maxVotes && r.voteCount > 0 ? 'text-[#0b8a51]' : 'text-[#26483a]'}`}>
                       {r.name}{r.voteCount === maxVotes && r.voteCount > 0 ? ' 🏆' : ''}
                     </p>
-                    <span className="shrink-0 text-xs font-bold text-[#587268]">{r.voteCount}</span>
+                    <span className="shrink-0 text-xs font-bold text-[#587268]">
+                      {r.voteCount} <span className="text-[#8a9a91]">({pct(r.voteCount, totalVotes)}%)</span>
+                    </span>
                   </div>
                   <div className="mt-1 h-2.5 overflow-hidden rounded-full bg-[#eef3f0]">
                     <div
@@ -449,13 +495,38 @@ function OverviewView({
           </div>
         </Card>
 
-        <div className="flex flex-col gap-6">
-          <Card>
+        {/* Vote-share donut */}
+        <Card>
+          <CardTitle eyebrow="Vote share" title="Share of all votes" right={<ChartPie className="size-5 text-[#8cc9a6]" />} />
+          <div className="mt-5 flex flex-col items-center gap-6 sm:flex-row">
+            <DonutChart
+              slices={shareSlices}
+              centerLabel={String(totalVotes)}
+              centerSub="Votes"
+              size={150}
+              stroke={24}
+            />
+            <div className="flex min-w-0 flex-1 flex-col gap-2">
+              {shareSlices.length === 0 && <p className="text-sm text-[#8a9a91]">No votes yet.</p>}
+              {shareSlices.map((s) => (
+                <div key={s.label} className="flex items-center gap-2.5 text-sm">
+                  <span className="size-3 shrink-0 rounded-full" style={{ backgroundColor: s.color }} />
+                  <span className="min-w-0 flex-1 truncate font-semibold text-[#26483a]">{s.label}</span>
+                  <span className="shrink-0 text-xs font-bold text-[#587268]">{s.value}</span>
+                  <span className="w-14 shrink-0 text-right text-xs font-bold text-[#0b8a51]">{pct(s.value, totalVotes)}%</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </Card>
+
+        <div className="grid gap-6 sm:grid-cols-2 xl:grid-cols-[1fr_1fr_1fr_1fr]">
+          <Card className="sm:col-span-2 xl:col-span-2">
             <CardTitle eyebrow="Daily trend" title="Votes per day" />
             <div className="mt-5 flex h-28 items-end gap-1.5">
               {results?.perDay.length ? (
                 results.perDay.map((d) => (
-                  <div key={d.day} className="group relative flex-1" title={`${d.day}: ${d.count} vote(s)`}>
+                  <div key={d.day} className="group relative flex-1" title={`${d.day}: ${d.count} vote(s) (${pct(d.count, totalVotes)}%)`}>
                     <div className="w-full rounded-t-md bg-gradient-to-t from-[#0b8a51] to-[#3ecf8e]" style={{ height: `${Math.max(6, (d.count / maxDay) * 100)}%` }} />
                   </div>
                 ))
@@ -467,12 +538,12 @@ function OverviewView({
               <p className="mt-2 text-xs text-[#8a9a91]">{results.perDay[0].day} → {results.perDay[results.perDay.length - 1].day}</p>
             ) : null}
           </Card>
-          <Card>
+          <Card className="sm:col-span-2 xl:col-span-2">
             <CardTitle eyebrow="Peak activity" title="Votes by hour" />
-            <div className="mt-5 flex h-24 items-end gap-1">
+            <div className="mt-5 flex h-28 items-end gap-1">
               {results?.perHour.length ? (
                 results.perHour.map((h, i) => (
-                  <div key={`${h.hour}-${i}`} className="relative flex-1" title={`${h.hour} — ${h.count} vote(s)`}>
+                  <div key={`${h.hour}-${i}`} className="relative flex-1" title={`${h.hour} — ${h.count} vote(s) (${pct(h.count, totalVotes)}%)`}>
                     <div className="w-full rounded-t-md bg-[#7fb99a]" style={{ height: `${Math.max(6, (h.count / maxHour) * 100)}%` }} />
                   </div>
                 ))
@@ -1270,6 +1341,7 @@ function StaffView({
   onEditNominee,
   onRemoveNominee,
   onSetNominated,
+  onSetNotNominee,
 }: {
   staffData: StaffData | null
   onDeleteVotesFor: (sn: number, name: string) => void
@@ -1278,9 +1350,10 @@ function StaffView({
   onEditNominee: (sn: number, name: string, phone: string, division: string) => Promise<boolean | string>
   onRemoveNominee: (sn: number, name: string) => Promise<void>
   onSetNominated: (sn: number, name: string, nominated: boolean) => Promise<void>
+  onSetNotNominee: (sn: number, name: string, notNominee: boolean) => Promise<void>
 }) {
   const [search, setSearch] = useState('')
-  const [filter, setFilter] = useState<'all' | 'voted' | 'not-voted' | 'nominated' | 'not-nominated' | 'no-division'>('all')
+  const [filter, setFilter] = useState<'all' | 'voted' | 'not-voted' | 'nominated' | 'not-nominated' | 'no-division' | 'voters-only'>('all')
   const [showAddForm, setShowAddForm] = useState(false)
   // When editingSn is set, the modal edits that nominee instead of adding
   const [editingSn, setEditingSn] = useState<number | null>(null)
@@ -1336,6 +1409,7 @@ function StaffView({
       if (filter === 'nominated' && !s.nominated) return false
       if (filter === 'not-nominated' && s.nominated) return false
       if (filter === 'no-division' && s.division) return false
+      if (filter === 'voters-only' && !s.notNominee) return false
       if (!q) return true
       return s.name.toLowerCase().includes(q) || s.phone.includes(q) || String(s.sn).includes(q) || (s.division ?? '').toLowerCase().includes(q)
     })
@@ -1352,11 +1426,14 @@ function StaffView({
       s.sn,
       s.name,
       s.phone,
+      s.division ?? '',
+      s.nominated ? 'yes' : 'no',
+      s.notNominee ? 'yes' : 'no',
       s.votesReceived,
       s.hasVoted ? 'yes' : 'no',
     ])
     const csv = toCsv(
-      ['S/N', 'Name', 'Phone', 'Votes Received', 'Has Voted'],
+      ['S/N', 'Name', 'Phone', 'Division', 'On Ballot', 'Voters-Only', 'Votes Received', 'Has Voted'],
       rows,
     )
     downloadCsv(`ippis-nominal-roll-${csvTimestamp()}.csv`, csv)
@@ -1381,13 +1458,14 @@ function StaffView({
           </label>
           <select
             value={filter}
-            onChange={(e) => setFilter(e.target.value as 'all' | 'voted' | 'not-voted' | 'nominated' | 'not-nominated' | 'no-division')}
+            onChange={(e) => setFilter(e.target.value as 'all' | 'voted' | 'not-voted' | 'nominated' | 'not-nominated' | 'no-division' | 'voters-only')}
             className="rounded-xl border border-[#d7e5de] bg-[#fbfdfc] px-3 py-2.5 text-sm font-semibold text-[#315d4a] outline-none ring-[#0b8a51] focus:ring-2"
           >
             <option value="all">All staff</option>
             <option value="nominated">★ On the ballot</option>
             <option value="not-nominated">Not on the ballot</option>
             <option value="no-division">No division set</option>
+            <option value="voters-only">Voters-only (cannot be voted for)</option>
             <option value="voted">✓ Have voted</option>
             <option value="not-voted">Not yet voted</option>
           </select>
@@ -1424,12 +1502,17 @@ function StaffView({
           </thead>
           <tbody>
             {filtered.map((s) => (
-              <tr key={s.sn} className="border-b border-[#f0f5f2] transition hover:bg-[#f7fbf9]">
+              <tr key={s.sn} className={`border-b border-[#f0f5f2] transition hover:bg-[#f7fbf9] ${s.notNominee ? 'bg-[#fafbfa]' : ''}`}>
                 <td className="py-3 pr-3 font-mono text-xs text-[#a4b8ae]">{s.sn}</td>
                 <td className="py-3 pr-3">
                   <div className="flex items-center gap-2.5">
-                    <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-[#eef7f2] text-[10px] font-bold text-[#0b8a51]">{initialsOf(s.name)}</div>
-                    <span className="font-semibold text-[#26483a]">{s.name}</span>
+                    <div className={`flex size-8 shrink-0 items-center justify-center rounded-lg text-[10px] font-bold ${s.notNominee ? 'bg-[#f1f4f2] text-[#8a9a91]' : 'bg-[#eef7f2] text-[#0b8a51]'}`}>{initialsOf(s.name)}</div>
+                    <span className={`font-semibold ${s.notNominee ? 'text-[#587268]' : 'text-[#26483a]'}`}>{s.name}</span>
+                    {s.notNominee && (
+                      <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-[#fdeaea] px-2 py-0.5 text-[10px] font-bold text-[#b04a4a]" title="Voters-only: can vote but can never be voted for">
+                        <UserX className="size-3" /> Voters-only
+                      </span>
+                    )}
                   </div>
                 </td>
                 <td className="py-3 pr-3">
@@ -1473,9 +1556,12 @@ function StaffView({
                 <td className="py-3 pr-1">
                   <RowActions
                     items={[
+                      s.notNominee
+                        ? { label: 'Allow to be voted for', icon: <UserCheck className="size-4" />, onClick: () => onSetNotNominee(s.sn, s.name, false) }
+                        : { label: 'Flag voters-only (cannot be voted for)', icon: <UserX className="size-4" />, onClick: () => onSetNotNominee(s.sn, s.name, true) },
                       s.nominated
-                        ? { label: 'Withdraw from ballot', icon: <StarOff className="size-4" />, onClick: () => onSetNominated(s.sn, s.name, false) }
-                        : { label: 'Nominate for ballot', icon: <Star className="size-4" />, onClick: () => onSetNominated(s.sn, s.name, true) },
+                        ? { label: 'Withdraw from ballot', icon: <StarOff className="size-4" />, onClick: () => onSetNominated(s.sn, s.name, false), disabled: s.notNominee }
+                        : { label: 'Nominate for ballot', icon: <Star className="size-4" />, onClick: () => onSetNominated(s.sn, s.name, true), disabled: s.notNominee },
                       { label: 'Copy phone', icon: <Phone className="size-4" />, onClick: () => onRevealPhone(s.phone), disabled: !s.phone },
                       { label: 'Edit name / phone / division', icon: <Pencil className="size-4" />, onClick: () => openEditModal(s.sn, s.name, s.phone, s.division) },
                       { label: 'Delete their votes', icon: <Trash2 className="size-4" />, onClick: () => onDeleteVotesFor(s.sn, s.name), danger: true },
@@ -2019,6 +2105,27 @@ export default function AdminPage() {
     }
   }
 
+  async function setNotNominee(sn: number, name: string, notNominee: boolean) {
+    if (notNominee && !confirm(`Flag ${name} as voters-only? They can still vote, but will be hidden from the public roll, removed from every ballot, and can never receive votes or win a division vote.`)) return
+    if (!notNominee && !confirm(`Remove the voters-only flag from ${name}? They will be visible on the public roll again and eligible to be voted for.`)) return
+    try {
+      const res = await fetch('/api/admin/nominees', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sn, notNominee }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        showToast(false, (data.error as string) ?? 'Failed to update the voters-only flag')
+        return
+      }
+      showToast(true, notNominee ? `${name} flagged voters-only (can vote, cannot be voted for)` : `${name} is eligible to be voted for again`)
+      await loadData()
+    } catch {
+      showToast(false, 'Network error. Please try again.')
+    }
+  }
+
   async function setNominated(sn: number, name: string, nominated: boolean) {
     if (!nominated && !confirm(`Withdraw ${name} from the ballot? Past votes stay on record, but they can no longer receive new votes.`)) return
     try {
@@ -2191,6 +2298,7 @@ export default function AdminPage() {
               onEditNominee={editNominee}
               onRemoveNominee={removeNominee}
               onSetNominated={setNominated}
+              onSetNotNominee={setNotNominee}
             />
           )}
           {view === 'settings' && (

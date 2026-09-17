@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server'
-import { addNominee, removeNominee, setNomineeDivision, setNominated, updateNominee } from '@/lib/nominees'
+import { addNominee, removeNominee, setNomineeDivision, setNominated, setNotNominee, updateNominee } from '@/lib/nominees'
 import { requireAdmin } from '@/lib/admin-auth'
 
 export const dynamic = 'force-dynamic'
@@ -82,9 +82,9 @@ export async function PATCH(request: NextRequest) {
   try {
     await requireAdmin()
 
-    let body: { sn?: unknown; nominated?: unknown; division?: unknown }
+    let body: { sn?: unknown; nominated?: unknown; division?: unknown; notNominee?: unknown }
     try {
-      body = (await request.json()) as { sn?: unknown; nominated?: unknown }
+      body = (await request.json()) as { sn?: unknown; nominated?: unknown; division?: unknown; notNominee?: unknown }
     } catch {
       return NextResponse.json({ error: 'Invalid request body.' }, { status: 400 })
     }
@@ -94,13 +94,16 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: 'A valid staff S/N is required.' }, { status: 400 })
     }
 
-    // Two patch modes: nomination toggle { nominated: boolean } or
-    // division assignment { division: string }.
-    const result = typeof body.nominated === 'boolean'
-      ? await setNominated(sn, body.nominated)
-      : typeof body.division === 'string'
-        ? await setNomineeDivision(sn, body.division)
-        : { ok: false as const, error: 'Provide nominated (boolean) or division (string).', status: 400 as const }
+    // Three patch modes: nomination toggle { nominated: boolean },
+    // division assignment { division: string }, or the voters-only flag
+    // { notNominee: boolean } (can vote but can never be voted for).
+    const result = typeof body.notNominee === 'boolean'
+      ? await setNotNominee(sn, body.notNominee)
+      : typeof body.nominated === 'boolean'
+        ? await setNominated(sn, body.nominated)
+        : typeof body.division === 'string'
+          ? await setNomineeDivision(sn, body.division)
+          : { ok: false as const, error: 'Provide nominated, division or notNominee.', status: 400 as const }
     if (!result.ok) {
       return NextResponse.json({ error: result.error }, { status: result.status })
     }

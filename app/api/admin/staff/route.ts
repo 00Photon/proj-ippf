@@ -27,12 +27,13 @@ export async function GET() {
 
     const nominees = await getNominees()
 
-    const staff = nominees.map(({ sn, name, phone, division, nominated }) => ({
+    const staff = nominees.map(({ sn, name, phone, division, nominated, notNominee }) => ({
       sn,
       name,
       phone,
       division,
       nominated,
+      notNominee,
       votesReceived: receivedRows.find((r) => r.candidate_sn === sn)?.count ?? 0,
       hasVoted: phone !== null && voters.has(phone),
     }))

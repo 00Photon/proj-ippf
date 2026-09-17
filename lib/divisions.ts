@@ -103,6 +103,9 @@ export async function recordDivisionVote(payload: {
   if (!candidate) {
     return { ok: false, error: 'Please select a valid staff member.', status: 400 }
   }
+  if (candidate.notNominee) {
+    return { ok: false, error: 'This staff member cannot receive votes.', status: 400 }
+  }
   if (!candidate.division || candidate.division !== voter.division) {
     return { ok: false, error: `You can only vote for staff in your own division (${voter.division}).`, status: 403 }
   }
@@ -168,7 +171,11 @@ export async function getDivisionStandings(month: string | null): Promise<Divisi
     entry.results.push({ sn: row.candidate_sn, name: row.candidate_name, voteCount: row.vote_count })
   }
 
+  // Voters-only staff (notNominee) never appear in standings and can never lead.
+  const eligible = new Set(nominees.filter((m) => !m.notNominee).map((m) => m.sn))
+
   for (const entry of byDivision.values()) {
+    entry.results = entry.results.filter((r) => eligible.has(r.sn))
     entry.results.sort((a, b) => b.voteCount - a.voteCount || a.sn - b.sn)
     entry.voters = entry.results.reduce((sum, r) => sum + r.voteCount, 0)
     entry.leader = entry.results[0]?.voteCount ? entry.results[0] : null

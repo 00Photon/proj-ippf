@@ -9,7 +9,16 @@ export interface Nominee {
   phone: string | null
   division: string | null
   nominated: boolean
+  /** Voters-only staff: can vote but can never be voted for or appear on any ballot. */
+  notNominee: boolean
 }
+
+/**
+ * Staff who can vote but can never be voted for (grade-level 15/16 line staff,
+ * confirmed by admin). Seeded once by S/N; the admin can toggle the flag
+ * afterwards via the Staff tab without it being re-applied.
+ */
+const VOTERS_ONLY_SNS = new Set([9, 10, 11, 12, 13, 23, 24, 25, 40, 52, 59, 60, 61, 75, 76])
 
 let ready: Promise<void> | null = null
 
@@ -38,6 +47,16 @@ async function ensureNomineesTable(): Promise<void> {
       await sql`ALTER TABLE nominees ADD COLUMN IF NOT EXISTS nominated BOOLEAN NOT NULL DEFAULT false`
       await sql`ALTER TABLE nominees ADD COLUMN IF NOT EXISTS division TEXT`
       await sql`ALTER TABLE nominees ALTER COLUMN phone DROP NOT NULL`
+      await sql`ALTER TABLE nominees ADD COLUMN IF NOT EXISTS not_nominee BOOLEAN NOT NULL DEFAULT false`
+
+      // One-time seed of the voters-only flag (S/N list confirmed by admin).
+      // Runs once ever — afterwards the flag is admin-managed via the Staff tab.
+      await sql`INSERT INTO settings (key, value) VALUES ('not_nominee_seeded', 'pending') ON CONFLICT (key) DO NOTHING`
+      const seedRows = (await sql`SELECT value FROM settings WHERE key = 'not_nominee_seeded' LIMIT 1`) as unknown as { value: string }[]
+      if ((seedRows[0]?.value ?? 'done') === 'pending') {
+        await sql`UPDATE nominees SET not_nominee = true WHERE sn = ANY(${Array.from(VOTERS_ONLY_SNS)})`
+        await sql`UPDATE settings SET value = 'done' WHERE key = 'not_nominee_seeded'`
+      }
 
       const countRows = (await sql`SELECT COUNT(*)::int AS n FROM nominees`) as unknown as { n: number }[]
       if ((countRows[0]?.n ?? 0) === 0) {
@@ -54,6 +73,8 @@ async function ensureNomineesTable(): Promise<void> {
         )
         // Keep the sequence ahead of the seeded S/Ns
         await sql`SELECT setval(pg_get_serial_sequence('nominees', 'sn'), (SELECT COALESCE(MAX(sn), 1) FROM nominees))`
+        // Flag the voters-only staff on a fresh seed too
+        await sql`UPDATE nominees SET not_nominee = true WHERE sn = ANY(${Array.from(VOTERS_ONLY_SNS)})`
       }
     })().catch((error) => {
       ready = null // allow a retry on the next call
@@ -70,20 +91,21 @@ async function ensureNomineesTable(): Promise<void> {
 export async function getNominees(): Promise<Nominee[]> {
   try {
     await ensureNomineesTable()
-    return (await sql`SELECT sn, name, COALESCE(phone, '') AS phone, division, nominated FROM nominees ORDER BY sn ASC`) as unknown as Nominee[]
+    return (await sql`SELECT sn, name, COALESCE(phone, '') AS phone, division, nominated, not_nominee AS "notNominee" FROM nominees ORDER BY sn ASC`) as unknown as Nominee[]
   } catch (error) {
     console.error('Nominees load failed, using static roll:', error instanceof Error ? error.message : error)
-    return staffList.map((m) => ({ ...m, division: m.division, nominated: false }))
+    return staffList.map((m) => ({ ...m, division: m.division, nominated: false, notNominee: VOTERS_ONLY_SNS.has(m.sn) }))
   }
 }
 
 /**
  * Only the nominated staff — the names shown on the public ballot and front
- * page. Admin-managed via the Staff tab.
+ * page. Admin-managed via the Staff tab. Voters-only staff are always
+ * excluded, even if the nominated flag was set before they were flagged.
  */
 export async function getNominatedNominees(): Promise<Nominee[]> {
   const list = await getNominees()
-  return list.filter((member) => member.nominated)
+  return list.filter((member) => member.nominated && !member.notNominee)
 }
 
 /**
@@ -278,5 +300,48 @@ export async function removeNominee(sn: number): Promise<RemoveNomineeResult> {
   } catch (error) {
     console.error('Remove nominee failed:', error instanceof Error ? error.message : error)
     return { ok: false, error: 'Could not remove the staff member. Please try again.', status: 500 }
+  }
+}
+
+export type SetNotNomineeResult =
+  | { ok: true; nominee: Nominee }
+  | { ok: false; error: string; status: 400 | 404 | 500 }
+
+/**
+ * Marks (or unmarks) a staff member as voters-only: they can vote but can
+ * never be voted for. Flagged staff are hidden from the public roll, excluded
+ * from every ballot, and can never win a division vote. Admin-managed via the
+ * Staff tab.
+ */
+export async function setNotNominee(sn: number, notNominee: boolean): Promise<SetNotNomineeResult> {
+  if (!Number.isFinite(sn)) {
+    return { ok: false, error: 'Invalid staff S/N.', status: 400 }
+  }
+  try {
+    await ensureNomineesTable()
+    if (notNominee) {
+      // Flagging also pulls them off the general ballot, so the two flags stay consistent.
+      const rows = (await sql`
+        UPDATE nominees SET not_nominee = true, nominated = false
+        WHERE sn = ${sn}
+        RETURNING sn, name, phone, division, nominated, not_nominee AS "notNominee"
+      `) as unknown as Nominee[]
+      if (rows.length === 0) {
+        return { ok: false, error: 'Staff member not found.', status: 404 }
+      }
+      return { ok: true, nominee: rows[0] }
+    }
+    const rows = (await sql`
+      UPDATE nominees SET not_nominee = false
+      WHERE sn = ${sn}
+      RETURNING sn, name, phone, division, nominated, not_nominee AS "notNominee"
+    `) as unknown as Nominee[]
+    if (rows.length === 0) {
+      return { ok: false, error: 'Staff member not found.', status: 404 }
+    }
+    return { ok: true, nominee: rows[0] }
+  } catch (error) {
+    console.error('Set not-nominee failed:', error instanceof Error ? error.message : error)
+    return { ok: false, error: 'Could not update the voters-only flag. Please try again.', status: 500 }
   }
 }

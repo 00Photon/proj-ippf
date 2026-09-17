@@ -1,6 +1,29 @@
 import { jsPDF } from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import { divisionColor } from '@/lib/division-list'
+import {
+  CONTENT_W,
+  GREEN,
+  GREEN_DARK,
+  INK,
+  LINE,
+  M,
+  MUTED,
+  PAGE_W,
+  deviceLabel,
+  ensureSpace,
+  fmtPhone,
+  fmtDateTime,
+  footer,
+  hexToRgb,
+  pct,
+  safe,
+  sectionTitle,
+  setFill,
+  setText,
+  setStroke,
+  statBox,
+} from '@/lib/report-shared'
 
 /**
  * Builds the admin "Division vote report" PDF: formatted cover header,
@@ -39,132 +62,10 @@ export interface DivisionReportInput {
   perDay: { day: string; count: number }[]
 }
 
-/* ---- Palette (matches the admin UI) ---- */
-
-const GREEN = '#0b8a51'
-const GREEN_DARK = '#17352b'
-const GREEN_SOFT = '#e3f4e9'
-const INK = '#26483a'
-const MUTED = '#587268'
-const LINE = '#dbe8e1'
-
-function hexToRgb(hex: string): [number, number, number] {
-  const n = Number.parseInt(hex.slice(1), 16)
-  return [(n >> 16) & 255, (n >> 8) & 255, n & 255]
-}
-
-function setFill(doc: jsPDF, hex: string): void {
-  const [r, g, b] = hexToRgb(hex)
-  doc.setFillColor(r, g, b)
-}
-
-function setText(doc: jsPDF, hex: string): void {
-  const [r, g, b] = hexToRgb(hex)
-  doc.setTextColor(r, g, b)
-}
-
-function setStroke(doc: jsPDF, hex: string): void {
-  const [r, g, b] = hexToRgb(hex)
-  doc.setDrawColor(r, g, b)
-}
-
-/** jsPDF core fonts only cover WinAnsi — drop anything outside it. */
-function safe(text: string): string {
-  return text.replace(/[^\r\n\t\x20-\x7e\xa0-\xff]/g, '?')
-}
-
-function pct(part: number, whole: number): number {
-  if (!whole) return 0
-  return Math.round((part / whole) * 1000) / 10
-}
-
-function fmtPhone(phone: string): string {
-  if (phone.length === 11) return `${phone.slice(0, 4)} ${phone.slice(4, 7)} ${phone.slice(7)}`
-  return phone
-}
-
-function fmtDateTime(iso: string): string {
-  return new Date(iso).toLocaleString('en-NG', {
-    day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
-  })
-}
-
-function deviceLabel(ua: string | null): string {
-  if (!ua) return 'Unknown'
-  if (/iphone|ipad/i.test(ua)) return 'iOS'
-  if (/android/i.test(ua)) return 'Android'
-  if (/windows/i.test(ua)) return 'Windows'
-  if (/mac os/i.test(ua)) return 'macOS'
-  if (/linux/i.test(ua)) return 'Linux'
-  return 'Other'
-}
-
-/* ---- Layout helpers (A4 pt: 595.28 x 841.89) ---- */
-
-const PAGE_W = 595.28
-const M = 42 // side margin
-const CONTENT_W = PAGE_W - M * 2
-
 /** Table end-Y across autotable versions (functional API exposes lastAutoTable). */
 function tableEndY(doc: jsPDF, fallback: number): number {
   const last = (doc as unknown as { lastAutoTable?: { finalY?: number } }).lastAutoTable
   return typeof last?.finalY === 'number' ? last.finalY : fallback
-}
-
-function sectionTitle(doc: jsPDF, y: number, eyebrow: string, title: string): number {
-  y = ensureSpace(doc, y, 64)
-  let yy = y
-  doc.setFont('helvetica', 'bold')
-  doc.setFontSize(7.5)
-  setText(doc, '#71867d')
-  const eyebrowText = safe(eyebrow.toUpperCase())
-  doc.text(eyebrowText, M, yy, { charSpace: 0.9 })
-  yy += 15
-  doc.setFontSize(13)
-  setText(doc, GREEN_DARK)
-  doc.text(safe(title), M, yy)
-  yy += 8
-  setStroke(doc, LINE)
-  doc.setLineWidth(0.75)
-  doc.line(M, yy, PAGE_W - M, yy)
-  return yy + 14
-}
-
-function ensureSpace(doc: jsPDF, y: number, needed: number): number {
-  if (y + needed <= 800) return y
-  doc.addPage()
-  return 42
-}
-
-function statBox(
-  doc: jsPDF,
-  x: number,
-  y: number,
-  w: number,
-  h: number,
-  label: string,
-  value: string,
-  sub: string,
-  accent: string,
-): void {
-  setFill(doc, '#fbfdfc')
-  setStroke(doc, LINE)
-  doc.setLineWidth(0.75)
-  doc.roundedRect(x, y, w, h, 6, 6, 'FD')
-  // accent chip
-  setFill(doc, accent)
-  doc.roundedRect(x + 10, y + 10, 22, 4, 2, 2, 'F')
-  doc.setFont('helvetica', 'bold')
-  doc.setFontSize(6.5)
-  setText(doc, '#71867d')
-  doc.text(safe(label.toUpperCase()), x + 10, y + 24, { charSpace: 0.5 })
-  doc.setFontSize(17)
-  setText(doc, INK)
-  doc.text(safe(value), x + 10, y + 42)
-  doc.setFont('helvetica', 'normal')
-  doc.setFontSize(7)
-  setText(doc, MUTED)
-  doc.text(safe(sub), x + 10, y + 53)
 }
 
 /** Horizontal share bars for per-division vote share. */
@@ -190,10 +91,8 @@ function shareBars(
     setText(doc, INK)
     doc.text(safe(item.label), M, yy, { maxWidth: labelW - 4 })
 
-    // track
     setFill(doc, '#eef3f0')
     doc.roundedRect(barX, yy - 6, barMaxW, 8, 4, 4, 'F')
-    // bar — proportional to share, with a minimum sliver for nonzero values
     if (item.value > 0) {
       const w = Math.max((item.value / item.total) * barMaxW, 6)
       setFill(doc, item.color)
@@ -203,8 +102,7 @@ function shareBars(
     doc.setFont('helvetica', 'bold')
     doc.setFontSize(8.5)
     setText(doc, MUTED)
-    const countText = `${item.value}`
-    doc.text(countText, barX + barMaxW + 8, yy)
+    doc.text(String(item.value), barX + barMaxW + 8, yy)
     setText(doc, GREEN)
     doc.text(`${share}%`, barX + barMaxW + 34, yy)
     yy += rowH
@@ -237,14 +135,12 @@ function dailyTrend(doc: jsPDF, y: number, perDay: { day: string; count: number 
     const x = M + i * slot + (slot - barW) / 2
     setFill(doc, d.count > 0 ? GREEN : '#cfe3d8')
     doc.roundedRect(x, baseY - h, barW, h, 2, 2, 'F')
-    // count above the tallest bars only, to avoid clutter
     if (perDay.length <= 14 || d.count === max) {
       doc.setFont('helvetica', 'bold')
       doc.setFontSize(7)
       setText(doc, MUTED)
       doc.text(String(d.count), x + barW / 2, baseY - h - 4, { align: 'center' })
     }
-    // date label — thin out on dense ranges
     const showEvery = Math.ceil(perDay.length / 12)
     if (i % showEvery === 0 || i === perDay.length - 1) {
       doc.setFont('helvetica', 'normal')
@@ -256,25 +152,6 @@ function dailyTrend(doc: jsPDF, y: number, perDay: { day: string; count: number 
   })
   return baseY + 20
 }
-
-function footer(doc: jsPDF, pageNo: number, pageCount: number, generatedAt: string): void {
-  doc.setPage(pageNo)
-  setStroke(doc, LINE)
-  doc.setLineWidth(0.75)
-  doc.line(M, 812, PAGE_W - M, 812)
-  doc.setFont('helvetica', 'normal')
-  doc.setFontSize(7)
-  setText(doc, '#8a9a91')
-  doc.text(safe('IPPIS Staff Recognition Portal - Division vote report'), M, 824)
-  doc.text(
-    safe(`Page ${pageNo} of ${pageCount} - generated ${fmtDateTime(generatedAt)}`),
-    PAGE_W - M,
-    824,
-    { align: 'right' },
-  )
-}
-
-/* ---- Main builder ---- */
 
 export function buildDivisionReportPdf(input: DivisionReportInput): jsPDF {
   const doc = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' })
@@ -341,7 +218,7 @@ export function buildDivisionReportPdf(input: DivisionReportInput): jsPDF {
   y = dailyTrend(doc, y, perDay)
   y += 12
 
-  /* Winners summary */
+  /* Winners summary table */
   const winners = standings.filter((d) => d.leader)
   if (winners.length > 0) {
     y = sectionTitle(doc, y, 'Outcomes', 'Division winners (top vote-getter per division)')
@@ -365,7 +242,7 @@ export function buildDivisionReportPdf(input: DivisionReportInput): jsPDF {
     y = tableEndY(doc, y) + 24
   }
 
-  /* Per-division results */
+  /* Per-division result tables */
   for (const d of standings.filter((x) => x.results.length > 0)) {
     y = ensureSpace(doc, y, 110)
     const color = divisionColor(standings.findIndex((s) => s.division === d.division))
@@ -445,7 +322,7 @@ export function buildDivisionReportPdf(input: DivisionReportInput): jsPDF {
   /* Footers on every page */
   const pageCount = doc.getNumberOfPages()
   for (let i = 1; i <= pageCount; i++) {
-    footer(doc, i, pageCount, generatedAt)
+    footer(doc, i, pageCount, 'Division vote report', generatedAt)
   }
 
   return doc

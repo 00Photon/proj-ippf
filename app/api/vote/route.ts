@@ -44,10 +44,14 @@ export async function POST(request: NextRequest) {
   }
 
   // 2. Validate the candidate — must be a staff member currently on the ballot
+  //    (getNominatedNominees already excludes voters-only / notNominee staff)
   const ballot = await getNominatedNominees()
   const candidate = ballot.find((member) => member.sn === candidateSn)
   if (!candidate) {
     return NextResponse.json({ error: 'Please select a nominee who is on the ballot.' }, { status: 400 })
+  }
+  if (candidate.notNominee) {
+    return NextResponse.json({ error: 'This staff member cannot receive votes.' }, { status: 400 })
   }
 
   // 3. No self-voting — a staff member cannot vote for themselves
