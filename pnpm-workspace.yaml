@@ -2,7 +2,7 @@ minimumReleaseAgeExclude:
   - '@next/*'
   - next
 
-# pnpm 10 blocks dependency build scripts by default. Approve core-js
-# (transitive dep of jspdf — its postinstall only prints a funding notice).
-onlyBuiltDependencies:
-  - core-js
+# pnpm blocks dependency build scripts by default. core-js is a transitive
+# dependency of jspdf and its postinstall is approved for this project.
+allowBuilds:
+  core-js: true
