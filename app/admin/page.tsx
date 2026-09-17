@@ -6,9 +6,11 @@ import {
   BarChart3,
   Building2,
   Check,
+  ChartPie,
   ClipboardList,
   Eye,
   EyeOff,
+  FileDown,
   Fingerprint,
   KeyRound,
   LayoutDashboard,
@@ -24,6 +26,7 @@ import {
   ShieldCheck,
   Star,
   StarOff,
+  Target,
   Trash2,
   TrendingUp,
   Trophy,
@@ -33,6 +36,7 @@ import {
   Users,
   X,
 } from 'lucide-react'
+import type { jsPDF } from 'jspdf'
 
 /* ============ Types ============ */
 
@@ -174,6 +178,12 @@ function initialsOf(name: string): string {
   const first = parts[0]?.[0] ?? '?'
   const last = parts.length > 1 ? parts[parts.length - 1][0] : ''
   return (first + last).toUpperCase()
+}
+
+/** Percentage of `part` within `whole`, 0-safe, rounded to 1 decimal. */
+function pct(part: number, whole: number): number {
+  if (!whole) return 0
+  return Math.round((part / whole) * 1000) / 10
 }
 
 /* ============ CSV export ============ */
@@ -811,6 +821,63 @@ function VotesView({ month, onMonthChange, onDeleteVote, refreshKey }: { month: 
   )
 }
 
+/* ============ Donut chart (SVG, for division summary) ============ */
+
+function DonutChart({
+  slices,
+  centerLabel,
+  centerSub,
+  size = 168,
+  stroke = 26,
+}: {
+  slices: { label: string; value: number; color: string }[]
+  centerLabel: string
+  centerSub: string
+  size?: number
+  stroke?: number
+}) {
+  const total = slices.reduce((sum, s) => sum + s.value, 0)
+  const radius = (size - stroke) / 2
+  const circumference = 2 * Math.PI * radius
+  let offset = 0
+
+  return (
+    <div className="relative shrink-0" style={{ width: size, height: size }}>
+      <svg width={size} height={size} className="-rotate-90">
+        <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="#eef3f0" strokeWidth={stroke} />
+        {total > 0 &&
+          slices.map((s) => {
+            if (s.value <= 0) return null
+            const frac = s.value / total
+            const dash = frac * circumference
+            const el = (
+              <circle
+                key={s.label}
+                cx={size / 2}
+                cy={size / 2}
+                r={radius}
+                fill="none"
+                stroke={s.color}
+                strokeWidth={stroke}
+                strokeDasharray={`${Math.max(dash - 2, 0.5)} ${circumference - Math.max(dash - 2, 0.5) + 0.5}`}
+                strokeDashoffset={-offset}
+                strokeLinecap="butt"
+              >
+                <title>{`${s.label}: ${s.value} (${pct(s.value, total)}%)`}</title>
+              </circle>
+            )
+            offset += dash
+            return el
+          })}
+      </svg>
+      <div className="absolute inset-0 flex flex-col items-center justify-center">
+        <p className="text-2xl font-bold tracking-tight text-[#26483a]">{centerLabel}</p>
+        <p className="mt-0.5 text-[10px] font-bold uppercase tracking-[0.12em] text-[#8a9a91]">{centerSub}</p>
+      </div>
+    </div>
+  )
+}
+
 /* ============ Divisions view ============ */
 
 function DivisionsView({
@@ -844,6 +911,72 @@ function DivisionsView({
   const standings = divisionData?.standings ?? []
   const votes = rows ?? []
   const totalDivisionVotes = votes.length
+
+  // ---- Detailed analytics ----
+  // Overall vote share per division (who received the most votes overall)
+  const shareSlices = useMemo(
+    () =>
+      standings
+        .map((d, i) => ({ label: d.division, value: d.voters, color: divisionColor(i) }))
+        .filter((s) => s.value > 0),
+    [standings],
+  )
+
+  // Candidates by total votes received across all divisions
+  const candidateTotals = useMemo(() => {
+    const map = new Map<number, { sn: number; name: string; votes: number }>()
+    for (const d of standings) {
+      for (const r of d.results) {
+        const entry = map.get(r.sn)
+        if (entry) entry.votes += r.voteCount
+        else map.set(r.sn, { sn: r.sn, name: r.name, votes: r.voteCount })
+      }
+    }
+    return [...map.values()].sort((a, b) => b.votes - a.votes || a.sn - b.sn)
+  }, [standings])
+
+  const maxCandidateVotes = candidateTotals[0]?.votes ?? 0
+
+  // Division votes per day (turnout trend for this reporting period)
+  const perDay = useMemo(() => {
+    const map = new Map<string, number>()
+    for (const v of votes) {
+      const day = new Date(v.votedAt).toLocaleDateString('en-CA') // YYYY-MM-DD
+      map.set(day, (map.get(day) ?? 0) + 1)
+    }
+    return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([day, count]) => ({ day, count }))
+  }, [votes])
+  const maxDay = Math.max(1, ...perDay.map((d) => d.count))
+
+  const activeDivisions = standings.filter((d) => d.voters > 0).length
+  const decidedDivisions = standings.filter((d) => d.leader).length
+  const leadingPct = pct(decidedDivisions, standings.length || 7)
+  const proxyCount = votes.filter((v) => v.isProxy).length
+  const proxyPct = pct(proxyCount, totalDivisionVotes)
+  const participationPct = pct(activeDivisions, standings.length || 7)
+
+  const [exportingPdf, setExportingPdf] = useState(false)
+
+  async function exportPdf() {
+    setExportingPdf(true)
+    try {
+      const { buildDivisionReportPdf } = await import('@/lib/division-report')
+      const doc = buildDivisionReportPdf({
+        month,
+        generatedAt: new Date().toISOString(),
+        divisionOpen: settings?.divisionOpen ?? false,
+        votingMonth: settings?.votingMonth ?? '',
+        standings,
+        votes,
+        perDay,
+      })
+      doc.save(`ippis-division-vote-${month === '__all__' ? 'all-time' : month.replace(/\s+/g, '-').toLowerCase()}-${csvTimestamp()}.pdf`)
+    } catch {
+      alert('PDF export failed. Please try again.')
+    } finally {
+      setExportingPdf(false)
+    }
+  }
 
   return (
     <div className="flex flex-col gap-6">
@@ -911,23 +1044,111 @@ function DivisionsView({
                 ))}
               </select>
             </label>
+            <button
+              onClick={exportPdf}
+              disabled={exportingPdf}
+              className="flex items-center justify-center gap-2 rounded-xl bg-[#0b8a51] px-4 py-2.5 text-xs font-bold text-white transition hover:bg-[#0a7a47] disabled:opacity-50"
+              title="Download the full division vote report as a formatted PDF"
+            >
+              {exportingPdf ? <Loader2 className="size-3.5 animate-spin" /> : <FileDown className="size-3.5" />} Export PDF
+            </button>
           </div>
-          <div className="mt-4 grid grid-cols-3 gap-3">
+          <div className="mt-4 grid grid-cols-2 gap-3 xl:grid-cols-4">
             <div className="rounded-2xl bg-[#eef7f2] p-4">
               <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#71867d]">Division votes</p>
               <p className="mt-1 text-2xl font-bold text-[#0b8a51]">{totalDivisionVotes}</p>
+              <p className="mt-1 text-[11px] text-[#587268]">{proxyCount} flagged VPN ({proxyPct}%)</p>
             </div>
             <div className="rounded-2xl bg-[#eaf1fd] p-4">
-              <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#71867d]">Divisions</p>
-              <p className="mt-1 text-2xl font-bold text-[#2563eb]">{standings.filter((d) => d.voters > 0).length}/7</p>
+              <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#71867d]">Participation</p>
+              <p className="mt-1 text-2xl font-bold text-[#2563eb]">{participationPct}%</p>
+              <p className="mt-1 text-[11px] text-[#587268]">{activeDivisions}/7 divisions voting</p>
             </div>
             <div className="rounded-2xl bg-[#fdf6e3] p-4">
               <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#71867d]">Winners ready</p>
-              <p className="mt-1 text-2xl font-bold text-[#b78014]">{standings.filter((d) => d.leader).length}/7</p>
+              <p className="mt-1 text-2xl font-bold text-[#b78014]">{decidedDivisions}/7</p>
+              <p className="mt-1 text-[11px] text-[#587268]">{leadingPct}% of divisions decided</p>
+            </div>
+            <div className="rounded-2xl bg-[#f3eefd] p-4">
+              <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#71867d]">Avg votes / division</p>
+              <p className="mt-1 text-2xl font-bold text-[#7c3aed]">{activeDivisions ? (totalDivisionVotes / activeDivisions).toFixed(1) : '0'}</p>
+              <p className="mt-1 text-[11px] text-[#587268]">across participating divisions</p>
             </div>
           </div>
         </Card>
       </div>
+
+      {/* Detailed analytics: vote share donut + cross-division candidate totals */}
+      <div className="grid gap-6 xl:grid-cols-2">
+        <Card>
+          <CardTitle eyebrow="Vote share" title="Votes by division" right={<ChartPie className="size-5 text-[#8cc9a6]" />} />
+          <div className="mt-5 flex flex-col items-center gap-6 sm:flex-row">
+            <DonutChart
+              slices={shareSlices}
+              centerLabel={String(totalDivisionVotes)}
+              centerSub="Votes"
+            />
+            <div className="flex min-w-0 flex-1 flex-col gap-2">
+              {shareSlices.length === 0 && <p className="text-sm text-[#8a9a91]">No division votes yet.</p>}
+              {shareSlices.map((s) => (
+                <div key={s.label} className="flex items-center gap-2.5 text-sm">
+                  <span className="size-3 shrink-0 rounded-full" style={{ backgroundColor: s.color }} />
+                  <span className="min-w-0 flex-1 truncate font-semibold text-[#26483a]">{s.label}</span>
+                  <span className="shrink-0 text-xs font-bold text-[#587268]">{s.value} vote{s.value === 1 ? '' : 's'}</span>
+                  <span className="w-14 shrink-0 text-right text-xs font-bold text-[#0b8a51]">{pct(s.value, totalDivisionVotes)}%</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </Card>
+
+        <Card>
+          <CardTitle eyebrow="Vote share" title="Candidates by total votes" right={<Target className="size-5 text-[#8cc9a6]" />} />
+          <div className="mt-5 flex max-h-[280px] flex-col gap-3 overflow-y-auto pr-1">
+            {candidateTotals.length === 0 && <p className="text-sm text-[#8a9a91]">No division votes yet.</p>}
+            {candidateTotals.slice(0, 10).map((c, i) => (
+              <div key={c.sn} className="flex items-center gap-3">
+                <span className="w-8 shrink-0 text-right font-mono text-xs text-[#a4b8ae]">{c.sn}</span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <p className={`truncate text-sm font-semibold ${i === 0 && c.votes > 0 ? 'text-[#0b8a51]' : 'text-[#26483a]'}`}>
+                      {c.name}{i === 0 && c.votes > 0 ? ' 🏆' : ''}
+                    </p>
+                    <span className="shrink-0 text-xs font-bold text-[#587268]">
+                      {c.votes} <span className="text-[#8a9a91]">({pct(c.votes, totalDivisionVotes)}%)</span>
+                    </span>
+                  </div>
+                  <div className="mt-1 h-2.5 overflow-hidden rounded-full bg-[#eef3f0]">
+                    <div
+                      className={`h-full rounded-full transition-all ${i === 0 && c.votes > 0 ? 'bg-gradient-to-r from-[#0b8a51] to-[#3ecf8e]' : 'bg-[#9cc9b2]'}`}
+                      style={{ width: `${maxCandidateVotes ? (c.votes / maxCandidateVotes) * 100 : 0}%` }}
+                    />
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </Card>
+      </div>
+
+      {/* Turnout trend */}
+      <Card>
+        <CardTitle eyebrow="Turnout" title="Division votes per day" />
+        <div className="mt-5 flex h-28 items-end gap-1.5">
+          {perDay.length ? (
+            perDay.map((d) => (
+              <div key={d.day} className="group relative flex-1" title={`${d.day}: ${d.count} vote(s)`}>
+                <div className="w-full rounded-t-md bg-gradient-to-t from-[#0b8a51] to-[#3ecf8e]" style={{ height: `${Math.max(6, (d.count / maxDay) * 100)}%` }} />
+              </div>
+            ))
+          ) : (
+            <p className="self-center text-sm text-[#8a9a91]">No votes yet.</p>
+          )}
+        </div>
+        {perDay.length ? (
+          <p className="mt-2 text-xs text-[#8a9a91]">{perDay[0].day} → {perDay[perDay.length - 1].day}</p>
+        ) : null}
+      </Card>
 
       {/* Standings per division */}
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
@@ -938,15 +1159,28 @@ function DivisionsView({
               <span className="shrink-0 rounded-full bg-[#eef7f2] px-2 py-0.5 text-[10px] font-bold text-[#0b8a51]">{d.voters} vote{d.voters === 1 ? '' : 's'}</span>
             </div>
             {d.results.length > 0 ? (
-              <div className="mt-3 flex flex-col gap-1.5">
+              <div className="mt-3 flex flex-col gap-2">
                 {d.results.slice(0, 3).map((r, i) => (
-                  <div key={r.sn} className="flex items-center justify-between gap-2 text-xs">
-                    <span className={`truncate font-semibold ${i === 0 ? 'text-[#0b8a51]' : 'text-[#587268]'}`}>
-                      {i === 0 ? '★ ' : ''}{r.name}
-                    </span>
-                    <span className="shrink-0 font-bold text-[#8a9a91]">{r.voteCount}</span>
+                  <div key={r.sn}>
+                    <div className="flex items-center justify-between gap-2 text-xs">
+                      <span className={`truncate font-semibold ${i === 0 ? 'text-[#0b8a51]' : 'text-[#587268]'}`}>
+                        {i === 0 ? '★ ' : ''}{r.name}
+                      </span>
+                      <span className="shrink-0 font-bold text-[#8a9a91]">
+                        {r.voteCount} <span className="text-[#b3c2ba]">({pct(r.voteCount, d.voters)}%)</span>
+                      </span>
+                    </div>
+                    <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-[#eef3f0]">
+                      <div
+                        className={`h-full rounded-full ${i === 0 ? 'bg-gradient-to-r from-[#0b8a51] to-[#3ecf8e]' : 'bg-[#9cc9b2]'}`}
+                        style={{ width: `${d.voters ? (r.voteCount / d.voters) * 100 : 0}%` }}
+                      />
+                    </div>
                   </div>
                 ))}
+                {d.results.length > 3 && (
+                  <p className="text-[11px] text-[#8a9a91]">+{d.results.length - 3} more candidate{d.results.length - 3 === 1 ? '' : 's'}</p>
+                )}
               </div>
             ) : (
               <p className="mt-3 text-xs text-[#8a9a91]">No votes yet.</p>
@@ -1026,7 +1260,7 @@ function DivisionsView({
 
 /* ============ Staff view ============ */
 
-import { DIVISIONS } from '@/lib/division-list'
+import { DIVISIONS, divisionColor } from '@/lib/division-list'
 
 function StaffView({
   staffData,

@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { sql } from '@/lib/db'
-import { requireAdmin } from '@/lib/admin-auth'
+import { getSettings, requireAdmin } from '@/lib/admin-auth'
+import { refreshDivisionNominees } from '@/lib/divisions'
 
 export const dynamic = 'force-dynamic'
 
@@ -18,11 +19,15 @@ export async function DELETE(
     }
 
     const deleted = await sql`
-      DELETE FROM division_votes WHERE id = ${voteId} RETURNING id
+      DELETE FROM division_votes WHERE id = ${voteId} RETURNING id, candidate_sn, division, cycle_month
     `
     if (deleted.length === 0) {
       return NextResponse.json({ error: 'Division vote not found.' }, { status: 404 })
     }
+
+    const settings = await getSettings()
+    await refreshDivisionNominees(settings.votingMonth)
+
     return NextResponse.json({ ok: true, deletedId: voteId })
   } catch (error) {
     if ((error as Error & { status?: number }).status === 401) {

@@ -194,6 +194,30 @@ export async function nominateDivisionWinners(cycleMonth: string): Promise<{ nom
   return { nominated }
 }
 
+/**
+ * Rebuilds the general ballot from the current division standings for the cycle.
+ * This keeps the public ballot aligned with the active division winners and
+ * removes stale winners left behind after a division vote is deleted.
+ */
+export async function refreshDivisionNominees(cycleMonth: string): Promise<{ nominated: { division: string; sn: number; name: string }[] }> {
+  await ensureDivisionSchema()
+  const standings = await getDivisionStandings(cycleMonth)
+  const nominated: { division: string; sn: number; name: string }[] = []
+
+  for (const entry of standings) {
+    if (!entry.leader) {
+      await sql`UPDATE nominees SET nominated = false WHERE division = ${entry.division}`
+      continue
+    }
+
+    await sql`UPDATE nominees SET nominated = false WHERE division = ${entry.division}`
+    await sql`UPDATE nominees SET nominated = true WHERE sn = ${entry.leader.sn}`
+    nominated.push({ division: entry.division, sn: entry.leader.sn, name: entry.leader.name })
+  }
+
+  return { nominated }
+}
+
 /** Division votes audit rows for admin, scoped like getDivisionStandings. */
 export async function getDivisionVotes(month: string | null, limit = 500): Promise<DivisionVoteRow[]> {
   await ensureDivisionSchema()
